@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <title>照片轉PDF工具</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="manifest" href="manifest.json" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/blueimp-load-image@5.16.0/js/load-image.all.min.js"></script>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+        Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+      padding: 1em;
+      max-width: 480px;
+      margin: auto;
+    }
+    button {
+      margin: 0.5em 0.3em;
+      padding: 0.5em 1em;
+      font-size: 1em;
+    }
+    img {
+      max-width: 100px;
+      margin: 0.3em;
+      vertical-align: top;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+    }
+    .img-container {
+      display: inline-block;
+      position: relative;
+    }
+    .remove-btn {
+      position: absolute;
+      top: 0;
+      right: 0;
+      background: #d33;
+      color: white;
+      border: none;
+      border-radius: 50%;
+      width: 20px;
+      height: 20px;
+      font-size: 14px;
+      line-height: 16px;
+      cursor: pointer;
+    }
+    #preview {
+      margin-top: 1em;
+    }
+  </style>
+</head>
+<body>
+  <h2>照片轉PDF工具</h2>
+  <button onclick="pick(true)">📷 拍照</button>
+  <button onclick="pick(false)">🖼️ 選照片</button>
+  <button onclick="makePDF()">🧾 產生 PDF</button>
+  <div id="preview"></div>
+
+  <script>
+    const { jsPDF } = window.jspdf;
+    let images = [];
+
+    function pick(useCamera) {
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = "image/*";
+      input.multiple = true;
+      if (useCamera) input.capture = "environment";
+
+      input.onchange = () => {
+        Array.from(input.files).forEach((file) => {
+          loadImage(
+            file,
+            function (canvas) {
+              const dataUrl = canvas.toDataURL("image/jpeg");
+              images.push(dataUrl);
+              displayImage(dataUrl);
+            },
+            {
+              orientation: true,
+              canvas: true,
+            }
+          );
+        });
+      };
+      input.click();
+    }
+
+    function displayImage(dataUrl) {
+      const container = document.createElement("div");
+      container.className = "img-container";
+
+      const img = document.createElement("img");
+      img.src = dataUrl;
+
+      const btn = document.createElement("button");
+      btn.innerText = "✕";
+      btn.className = "remove-btn";
+      btn.onclick = () => {
+        const idx = images.indexOf(dataUrl);
+        if (idx >= 0) images.splice(idx, 1);
+        container.remove();
+      };
+
+      container.appendChild(img);
+      container.appendChild(btn);
+      document.getElementById("preview").appendChild(container);
+    }
+
+    function makePDF() {
+      if (images.length === 0) return alert("請先選擇照片");
+
+      const pdf = new jsPDF("portrait", "pt", "a4");
+      const w = pdf.internal.pageSize.getWidth();
+      const h = pdf.internal.pageSize.getHeight();
+
+      images.forEach((img, i) => {
+        if (i > 0) pdf.addPage();
+
+        const imgProps = pdf.getImageProperties(img);
+        const imgRatio = imgProps.width / imgProps.height;
+        const pageRatio = w / h;
+
+        let drawWidth, drawHeight, x, y;
+        if (imgRatio > pageRatio) {
+          drawWidth = w;
+          drawHeight = w / imgRatio;
+          x = 0;
+          y = (h - drawHeight) / 2;
+        } else {
+          drawHeight = h;
+          drawWidth = h * imgRatio;
+          x = (w - drawWidth) / 2;
+          y = 0;
+        }
+        pdf.addImage(img, "JPEG", x, y, drawWidth, drawHeight);
+      });
+
+      const now = new Date();
+      const ts = now
+        .toISOString()
+        .slice(0, 19)
+        .replace(/[:-]/g, "")
+        .replace("T", "_");
+      const filename = ts + "_轉檔.pdf";
+
+      pdf.save(filename);
+
+      if (navigator.share) {
+        pdf.output("blob").then((blob) => {
+          const file = new File([blob], filename, { type: "application/pdf" });
+          navigator.share({ files: [file], title: filename }).catch(console.error);
+        });
+      }
+    }
+
+    // PWA Service Worker 註冊
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker
+          .register("service-worker.js")
+          .then(() => console.log("Service Worker registered"))
+          .catch((err) => console.error("Service Worker registration failed:", err));
+      });
+    }
+  </script>
+</body>
+</html>
