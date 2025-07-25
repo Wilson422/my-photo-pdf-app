@@ -26,11 +26,38 @@
     #cropperImage { max-width:80vw; max-height:60vh; }
     #cropperBtns { margin-top:1em; }
     #effectSelect { font-size:1em; margin:0 1em; }
+    /* 新增瀏覽器提示樣式 */
+    #browserNotice {
+      background: #fff3cd;
+      color: #856404;
+      border: 1px solid #ffeeba;
+      padding: 16px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      font-size: 1.1em;
+      display: none;
+    }
+    #openBrowserBtn {
+      background: #2196F3;
+      color: #fff;
+      border: none;
+      border-radius: 5px;
+      padding: 10px 20px;
+      font-size: 1em;
+      cursor: pointer;
+      margin-left: 1em;
+    }
   </style>
   <script src="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 </head>
 <body>
+  <!-- 新增LINE與App瀏覽器提醒 -->
+  <div id="browserNotice">
+    ⚠️ 請用瀏覽器開啟此網址，才能完整使用所有功能！
+    <button id="openBrowserBtn">用外部瀏覽器開啟</button>
+  </div>
+
   <h2>📄 文件拍照轉 PDF（手動裁切＋多種效果）</h2>
   <div class="actions">
     <input type="file" accept="image/*" capture="environment" id="cameraInput" style="display:none">
@@ -62,6 +89,36 @@
   </div>
 
   <script>
+    // --- App 內建瀏覽器偵測 & 提示 ---
+    function isInAppBrowser() {
+      const ua = navigator.userAgent.toLowerCase();
+      // LINE, FB, IG, Messenger
+      return (
+        ua.indexOf(' line/') > -1 ||
+        ua.indexOf('fbav') > -1 ||
+        ua.indexOf('instagram') > -1 ||
+        ua.indexOf('messenger') > -1
+      );
+    }
+    function openInBrowser() {
+      // 嘗試用不同方法喚起外部瀏覽器
+      const url = window.location.href;
+      // Android Chrome
+      if (navigator.userAgent.toLowerCase().indexOf('android') > -1) {
+        window.location = 'intent://' + url.replace(/^https?:\/\//, '') + '#Intent;scheme=https;package=com.android.chrome;end';
+      } else {
+        // iOS 或其他，提示用戶手動操作
+        alert('請點畫面右上角 ...，並選擇「在瀏覽器中打開」。');
+      }
+    }
+    window.addEventListener('DOMContentLoaded', function() {
+      if (isInAppBrowser()) {
+        document.getElementById('browserNotice').style.display = '';
+        document.getElementById('openBrowserBtn').onclick = openInBrowser;
+      }
+    });
+
+    // --- 原本功能程式碼 ---
     const { jsPDF } = window.jspdf;
     let images = [];
     let cropper = null;
