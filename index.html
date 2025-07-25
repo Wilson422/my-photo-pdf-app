@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
-  <title>文件拍照轉 PDF（手動裁切＋強化對比）</title>
+  <title>文件拍照轉 PDF（手動裁切＋多種效果）</title>
   <link href="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.css" rel="stylesheet"/>
   <style>
     body { font-family: Arial, sans-serif; margin: 2em; }
@@ -24,12 +24,13 @@
     }
     #cropperImage { max-width:80vw; max-height:60vh; }
     #cropperBtns { margin-top:1em; }
+    #effectSelect { font-size:1em; margin:0 1em; }
   </style>
   <script src="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 </head>
 <body>
-  <h2>📄 文件拍照轉 PDF（手動裁切＋強化對比）</h2>
+  <h2>📄 文件拍照轉 PDF（手動裁切＋多種效果）</h2>
   <div class="actions">
     <input type="file" accept="image/*" capture="environment" id="cameraInput" style="display:none">
     <input type="file" accept="image/*" multiple id="fileInput" style="display:none">
@@ -44,6 +45,14 @@
   <div id="cropperModal">
     <div class="modal-content">
       <img id="cropperImage">
+      <div style="margin-top:1em;">
+        <label for="effectSelect">效果：</label>
+        <select id="effectSelect">
+          <option value="original">原色</option>
+          <option value="gray">灰階</option>
+          <option value="bw">黑白（強化對比）</option>
+        </select>
+      </div>
       <div id="cropperBtns">
         <button id="cropConfirmBtn">確定裁切</button>
         <button id="cropCancelBtn">取消</button>
@@ -54,35 +63,40 @@
   <script>
     const { jsPDF } = window.jspdf;
     let images = [];
-    let currentFile = null;
     let cropper = null;
 
-    // 強化對比（簡單二值化）+灰階
-    function enhanceContrast(imageData) {
-      // 灰階 + Otsu 二值化
-      const canvas = document.createElement('canvas');
-      canvas.width = imageData.width;
-      canvas.height = imageData.height;
+    // 灰階處理
+    function toGray(canvas) {
       const ctx = canvas.getContext('2d');
-      ctx.putImageData(imageData, 0, 0);
+      let imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      for (let i = 0; i < imgData.data.length; i += 4) {
+        let r = imgData.data[i], g = imgData.data[i+1], b = imgData.data[i+2];
+        let gray = 0.299*r + 0.587*g + 0.114*b;
+        imgData.data[i] = imgData.data[i+1] = imgData.data[i+2] = gray;
+      }
+      ctx.putImageData(imgData, 0, 0);
+      return canvas;
+    }
+
+    // 黑白強化（二值化，Otsu's method）
+    function toBW(canvas) {
+      const ctx = canvas.getContext('2d');
+      let imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
       // 灰階
-      let d = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      for (let i = 0; i < d.data.length; i += 4) {
-        let r = d.data[i], g = d.data[i+1], b = d.data[i+2];
+      for (let i = 0; i < imgData.data.length; i += 4) {
+        let r = imgData.data[i], g = imgData.data[i+1], b = imgData.data[i+2];
         let gray = 0.299*r + 0.587*g + 0.114*b;
-        d.data[i] = d.data[i+1] = d.data[i+2] = gray;
+        imgData.data[i] = imgData.data[i+1] = imgData.data[i+2] = gray;
       }
-      ctx.putImageData(d, 0, 0);
 
-      // Otsu 二值化
-      // 1. 計算直方圖
+      // 計算直方圖
       let hist = new Array(256).fill(0);
-      for (let i = 0; i < d.data.length; i += 4) {
-        let gray = d.data[i];
+      for (let i = 0; i < imgData.data.length; i += 4) {
+        let gray = imgData.data[i];
         hist[Math.round(gray)]++;
       }
-      // 2. Otsu演算法
+      // Otsu
       let total = canvas.width * canvas.height;
       let sum = 0;
       for (let t=0; t<256; t++) sum += t * hist[t];
@@ -101,13 +115,12 @@
           threshold = t;
         }
       }
-      // 3. 應用閾值
-      for (let i = 0; i < d.data.length; i += 4) {
-        let v = d.data[i] > threshold ? 255 : 0;
-        d.data[i] = d.data[i+1] = d.data[i+2] = v;
+      // 二值化
+      for (let i = 0; i < imgData.data.length; i += 4) {
+        let v = imgData.data[i] > threshold ? 255 : 0;
+        imgData.data[i] = imgData.data[i+1] = imgData.data[i+2] = v;
       }
-      ctx.putImageData(d, 0, 0);
-
+      ctx.putImageData(imgData, 0, 0);
       return canvas;
     }
 
@@ -121,7 +134,7 @@
       cropperImg.onload = () => {
         cropperInstance = new Cropper(cropperImg, {
           viewMode: 1,
-          aspectRatio: NaN, // 可自由裁切
+          aspectRatio: NaN,
           movable: true,
           zoomable: true,
           rotatable: true,
@@ -129,17 +142,24 @@
           autoCropArea: 1,
         });
       };
+
       // 確定裁切
       document.getElementById('cropConfirmBtn').onclick = () => {
         if (!cropperInstance) return;
+        const effect = document.getElementById('effectSelect').value;
         const croppedCanvas = cropperInstance.getCroppedCanvas();
-        const ctx = croppedCanvas.getContext('2d');
-        // 強化對比
-        const enhancedCanvas = enhanceContrast(ctx.getImageData(0, 0, croppedCanvas.width, croppedCanvas.height));
-        // 關閉
+        let resultCanvas = document.createElement('canvas');
+        resultCanvas.width = croppedCanvas.width;
+        resultCanvas.height = croppedCanvas.height;
+        resultCanvas.getContext('2d').drawImage(croppedCanvas,0,0);
+        if(effect === "gray") {
+          toGray(resultCanvas);
+        } else if(effect === "bw") {
+          toBW(resultCanvas);
+        }
         cropperInstance.destroy();
         modal.style.display = 'none';
-        callback(enhancedCanvas.toDataURL('image/jpeg', 0.92));
+        callback(resultCanvas.toDataURL('image/jpeg', 0.92));
       };
       // 取消
       document.getElementById('cropCancelBtn').onclick = () => {
@@ -221,23 +241,24 @@
         return;
       }
       const pdf = new jsPDF({ unit: 'pt', format: 'a4' });
-      let first = true;
-      images.forEach((src, idx) => {
-        const img = new Image();
-        img.onload = () => {
-          let pdfW = pdf.internal.pageSize.getWidth();
-          let pdfH = pdf.internal.pageSize.getHeight();
-          let ratio = Math.min(pdfW / img.width, pdfH / img.height);
-          let w = img.width * ratio, h = img.height * ratio;
-          let x = (pdfW - w) / 2, y = (pdfH - h) / 2;
-          if (!first) pdf.addPage();
-          pdf.addImage(img, 'JPEG', x, y, w, h);
-          if (idx === images.length - 1) {
-            pdf.save(getPdfFilename());
-          }
-        };
-        img.src = src;
-        first = false;
+      let addImagePromises = images.map((src, idx) => {
+        return new Promise((resolve) => {
+          const img = new Image();
+          img.onload = () => {
+            let pdfW = pdf.internal.pageSize.getWidth();
+            let pdfH = pdf.internal.pageSize.getHeight();
+            let ratio = Math.min(pdfW / img.width, pdfH / img.height);
+            let w = img.width * ratio, h = img.height * ratio;
+            let x = (pdfW - w) / 2, y = (pdfH - h) / 2;
+            if (idx > 0) pdf.addPage();
+            pdf.addImage(img, 'JPEG', x, y, w, h);
+            resolve();
+          };
+          img.src = src;
+        });
+      });
+      Promise.all(addImagePromises).then(() => {
+        pdf.save(getPdfFilename());
       });
     }
   </script>
