@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <!-- manifest 加版本參數 -->
-  <link rel="manifest" href="manifest.json?v=20250726-1">
+  <link rel="manifest" href="manifest.json?v=20250726-2">
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
   <title>文件拍照轉 PDF（手動裁切＋多種效果）</title>
   <link href="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.css" rel="stylesheet"/>
@@ -26,24 +26,27 @@
       padding: 1em;
       border-radius: 10px;
       max-width: 90vw;
-      max-height: 80vh;      /* 原90vh，改80vh */
+      max-height: 80vh;
       text-align: center;
-      overflow-y: auto;      /* 讓內容可捲動 */
+      overflow-y: auto;
       display: flex;
       flex-direction: column;
       align-items: center;
     }
     #cropperImage {
       max-width: 80vw;
-      max-height: 50vh;      /* 原60vh，改50vh */
+      max-height: 50vh;
+      touch-action: none; /* 防止 iOS 捲動卡住裁切 */
     }
     /* --- CropperJS 控制點放大 --- */
     .cropper-point {
-      width: 30px !important;
-      height: 30px !important;
+      width: 32px !important;
+      height: 32px !important;
       background-color: #2196F3 !important;
-      opacity: 0.8 !important;
+      opacity: 0.85 !important;
       border-radius: 50% !important;
+      border: 2px solid #fff !important;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.25);
     }
     /* 新增瀏覽器提示樣式 */
     #browserNotice {
@@ -66,10 +69,28 @@
       cursor: pointer;
       margin-left: 1em;
     }
+    /* 裁切操作提示文字 */
+    #cropperTip {
+      font-size: 1em;
+      color: #555;
+      margin-bottom: .5em;
+      margin-top: .5em;
+      font-weight: bold;
+    }
+    /* Modal 按鈕橫向排列 */
+    #cropperBtns {
+      margin-top: 1em;
+      display: flex;
+      gap: 1em;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    #cropperBtns button {
+      min-width: 80px;
+    }
   </style>
-  <!-- icon 加版本參數 -->
-  <link rel="icon" href="icon.png?v=20250726-1" type="image/png">
-  <!-- <link rel="apple-touch-icon" href="icon.png?v=20250726-1"> -->
+  <link rel="icon" href="icon.png?v=20250726-2" type="image/png">
+  <!-- <link rel="apple-touch-icon" href="icon.png?v=20250726-2"> -->
   <script src="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 </head>
@@ -92,6 +113,10 @@
 
   <div id="cropperModal">
     <div class="modal-content">
+      <div id="cropperTip">
+        單指拖曳移動、雙指縮放、點選圓點調整裁切範圍<br>
+        <span style="color: #1976d2;">如偏移請用「重設」回正</span>
+      </div>
       <img id="cropperImage">
       <div style="margin-top:1em;">
         <label for="effectSelect">效果：</label>
@@ -101,9 +126,10 @@
           <option value="bw">黑白（強化對比）</option>
         </select>
       </div>
-      <div id="cropperBtns" style="margin-top:1em;display:flex;gap:1em;">
-        <button id="cropConfirmBtn">確定裁切</button>
-        <button id="cropCancelBtn">取消</button>
+      <div id="cropperBtns">
+        <button id="cropResetBtn" type="button">重設</button>
+        <button id="cropConfirmBtn" type="button">確定裁切</button>
+        <button id="cropCancelBtn" type="button">取消</button>
       </div>
     </div>
   </div>
@@ -202,7 +228,16 @@
           rotatable: true,
           scalable: true,
           autoCropArea: 1,
+          minCropBoxWidth: 50,
+          minCropBoxHeight: 50,
+          dragMode: 'move', // 預設拖曳移動
+          toggleDragModeOnDblclick: false // 禁止雙擊切換拖曳/裁切模式
         });
+        // 讓 cropperInstance 可被多個事件使用
+        cropper = cropperInstance;
+      };
+      document.getElementById('cropResetBtn').onclick = () => {
+        if (cropperInstance) cropperInstance.reset();
       };
       document.getElementById('cropConfirmBtn').onclick = () => {
         if (!cropperInstance) return;
@@ -269,7 +304,7 @@
         div.className = 'preview-item';
         const img = document.createElement('img');
         img.src = src;
-        img.onerror = function() { this.src = 'icon.png?v=20250726-1'; };
+        img.onerror = function() { this.src = 'icon.png?v=20250726-2'; };
         const btn = document.createElement('button');
         btn.className = 'remove-btn';
         btn.textContent = '✖';
@@ -321,10 +356,9 @@
       });
     }
   </script>
-  <!-- service worker 加版本參數 -->
   <script>
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('service-worker.js?v=20250726-1')
+      navigator.serviceWorker.register('service-worker.js?v=20250726-2')
         .then(function(reg) {
           // console.log('Service Worker registered.', reg);
         });
