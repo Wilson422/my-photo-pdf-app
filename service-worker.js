@@ -1,4 +1,4 @@
-const CACHE_NAME = "photo-to-pdf-cache-v1";
+const CACHE_NAME = "v20250726-3";
 const urlsToCache = ["./", "./index.html", "./manifest.json", "./icon.png"];
 
 self.addEventListener("install", (event) => {
