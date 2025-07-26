@@ -4,8 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
   <title>文件拍照轉 PDF（手動裁切＋多種效果）</title>
-  <link rel="manifest" href="manifest.json?v=20250726-8">
-  <link rel="icon" href="icon.png?v=20250726-8" type="image/png">
+  <link rel="manifest" href="manifest.json?v=20250726-9">
+  <link rel="icon" href="icon.png?v=20250726-9" type="image/png">
   <link href="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.css" rel="stylesheet"/>
   <style>
     body { font-family: Arial, sans-serif; margin: 2em; background: #fff; }
@@ -75,7 +75,9 @@
       font-weight: bold;
     }
     #cropperImage {
-      max-width: 82vw;
+      width: auto;
+      height: auto;
+      max-width: 98vw;
       max-height: 28vh;
       margin-bottom: 0.5em;
       touch-action: none;
@@ -83,6 +85,8 @@
       background: #fafafa;
       border-radius: 4px;
       box-sizing: border-box;
+      display: block;
+      object-fit: contain;
     }
     .cropper-point {
       width: 30px !important;
@@ -372,7 +376,7 @@
         div.className = 'preview-item';
         const img = document.createElement('img');
         img.src = src;
-        img.onerror = function() { this.src = 'icon.png?v=20250726-8'; };
+        img.onerror = function() { this.src = 'icon.png?v=20250726-9'; };
         const btn = document.createElement('button');
         btn.className = 'remove-btn';
         btn.textContent = '✖';
@@ -426,7 +430,7 @@
   </script>
   <script>
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('service-worker.js?v=20250726-8')
+      navigator.serviceWorker.register('service-worker.js?v=20250726-9')
         .then(function(reg) {
           // console.log('Service Worker registered.', reg);
         });
