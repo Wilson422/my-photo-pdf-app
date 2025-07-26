@@ -4,8 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
   <title>文件拍照轉 PDF（手動裁切＋多種效果）</title>
-  <link rel="manifest" href="manifest.json?v=20250726-7">
-  <link rel="icon" href="icon.png?v=20250726-7" type="image/png">
+  <link rel="manifest" href="manifest.json?v=20250726-1">
+  <link rel="icon" href="icon.png?v=20250726-1" type="image/png">
   <link href="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.css" rel="stylesheet"/>
   <style>
     body { font-family: Arial, sans-serif; margin: 2em; background: #fff; }
@@ -58,16 +58,15 @@
     }
     #cropperModal .modal-content {
       background: #fff;
-      padding: 1em;
+      padding: 1em 0.5em;
       border-radius: 10px;
       max-width: 95vw;
-      max-height: 80vh; /* 80vh 可安全呈現 */
+      /* 高度用 JS 動態設置 */
       text-align: center;
       overflow-y: auto;
       display: flex;
       flex-direction: column;
       align-items: center;
-      /* 保證內容永遠不會被底部遮住 */
     }
     #cropperTip {
       font-size: 1em;
@@ -78,12 +77,13 @@
     }
     #cropperImage {
       max-width: 82vw;
-      max-height: 35vh; /* 再縮小，確保下方有空間 */
+      max-height: 28vh; /* 再縮小，確保下方有空間 */
       margin-bottom: 0.5em;
       touch-action: none;
       border: 1px solid #eee;
       background: #fafafa;
       border-radius: 4px;
+      box-sizing: border-box;
     }
     .cropper-point {
       width: 30px !important;
@@ -102,8 +102,8 @@
       color: #333;
     }
     #cropperBtns {
-      min-height: 70px;
-      margin-top: 1em;
+      min-height: 55px;
+      margin-top: 1.2em;
       display: flex;
       gap: 1em;
       flex-wrap: wrap;
@@ -111,9 +111,9 @@
       width: 100%;
     }
     #cropperBtns button {
-      min-width: 80px;
+      min-width: 90px;
       font-size: 1em;
-      padding: 0.6em 1em;
+      padding: 0.7em 1.1em;
       background: #f5f5f5;
       color: #333;
       border-radius: 6px;
@@ -126,7 +126,7 @@
     }
     @media (max-width: 500px) {
       #cropperModal .modal-content { padding: 0.5em 0.2em 0.7em 0.2em; }
-      #cropperImage { max-width: 98vw; max-height: 30vh; }
+      #cropperImage { max-width: 98vw; max-height: 24vh; }
       #cropperBtns button { font-size: 0.97em; min-width: 70px; padding: 0.5em 0.7em; }
       .actions { gap: 0.3em; }
     }
@@ -224,9 +224,10 @@
       return canvas;
     }
 
+    // 動態設置 modal-content 的最大高度
     function setModalContentHeight() {
-      // 真正可用高度（減去 iOS 可能的底部工具列/網址列）
-      var safeHeight = window.innerHeight - 20; // 可自行調整，20~60較安全
+      // iOS/Safari/LINE 用 innerHeight，安卓也適用
+      var safeHeight = window.innerHeight - 28; // 再多扣一點，確保底部完全露出
       var modalContent = document.querySelector('#cropperModal .modal-content');
       if (modalContent) {
         modalContent.style.maxHeight = safeHeight + 'px';
@@ -327,7 +328,7 @@
         div.className = 'preview-item';
         const img = document.createElement('img');
         img.src = src;
-        img.onerror = function() { this.src = 'icon.png?v=20250726-7'; };
+        img.onerror = function() { this.src = 'icon.png?v=20250726-1'; };
         const btn = document.createElement('button');
         btn.className = 'remove-btn';
         btn.textContent = '✖';
@@ -381,7 +382,7 @@
   </script>
   <script>
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('service-worker.js?v=20250726-7')
+      navigator.serviceWorker.register('service-worker.js?v=20250726-1')
         .then(function(reg) {
           // console.log('Service Worker registered.', reg);
         });
