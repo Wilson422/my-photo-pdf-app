@@ -2,8 +2,7 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <!-- manifest 加版本參數 -->
-  <link rel="manifest" href="manifest.json?v=20250726-2">
+  <link rel="manifest" href="manifest.json?v=20250726-3">
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
   <title>文件拍照轉 PDF（手動裁切＋多種效果）</title>
   <link href="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.css" rel="stylesheet"/>
@@ -23,20 +22,31 @@
     #cropperModal { display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.8); align-items:center; justify-content:center; z-index:9999; }
     #cropperModal .modal-content {
       background: #fff;
-      padding: 1em;
+      padding: 0.5em 1em 1em 1em;
       border-radius: 10px;
-      max-width: 90vw;
-      max-height: 80vh;
+      max-width: 92vw;
+      max-height: 86vh;
       text-align: center;
       overflow-y: auto;
       display: flex;
       flex-direction: column;
       align-items: center;
+      justify-content: flex-start;
+    }
+    #cropperTip {
+      font-size: 1em;
+      color: #555;
+      margin-bottom: .5em;
+      margin-top: .5em;
+      font-weight: bold;
     }
     #cropperImage {
       max-width: 80vw;
-      max-height: 50vh;
-      touch-action: none; /* 防止 iOS 捲動卡住裁切 */
+      max-height: 42vh;
+      margin-bottom: 0.5em;
+      touch-action: none;
+      border: 1px solid #ddd;
+      background: #f9f9f9;
     }
     /* --- CropperJS 控制點放大 --- */
     .cropper-point {
@@ -48,7 +58,6 @@
       border: 2px solid #fff !important;
       box-shadow: 0 1px 4px rgba(0,0,0,0.25);
     }
-    /* 新增瀏覽器提示樣式 */
     #browserNotice {
       background: #fff3cd;
       color: #856404;
@@ -69,16 +78,8 @@
       cursor: pointer;
       margin-left: 1em;
     }
-    /* 裁切操作提示文字 */
-    #cropperTip {
-      font-size: 1em;
-      color: #555;
-      margin-bottom: .5em;
-      margin-top: .5em;
-      font-weight: bold;
-    }
-    /* Modal 按鈕橫向排列 */
     #cropperBtns {
+      min-height: 80px;
       margin-top: 1em;
       display: flex;
       gap: 1em;
@@ -89,8 +90,7 @@
       min-width: 80px;
     }
   </style>
-  <link rel="icon" href="icon.png?v=20250726-2" type="image/png">
-  <!-- <link rel="apple-touch-icon" href="icon.png?v=20250726-2"> -->
+  <link rel="icon" href="icon.png?v=20250726-3" type="image/png">
   <script src="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 </head>
@@ -230,10 +230,15 @@
           autoCropArea: 1,
           minCropBoxWidth: 50,
           minCropBoxHeight: 50,
-          dragMode: 'move', // 預設拖曳移動
-          toggleDragModeOnDblclick: false // 禁止雙擊切換拖曳/裁切模式
+          dragMode: 'move',
+          toggleDragModeOnDblclick: false,
+          cropBoxResizable: true,
+          cropBoxMovable: true,
+          // 限制 cropBox 不超過 image
+          crop(event) {
+            // 這段可加可不加，因 CropperJS 已自動限制 cropBox 不超過 image
+          }
         });
-        // 讓 cropperInstance 可被多個事件使用
         cropper = cropperInstance;
       };
       document.getElementById('cropResetBtn').onclick = () => {
@@ -304,7 +309,7 @@
         div.className = 'preview-item';
         const img = document.createElement('img');
         img.src = src;
-        img.onerror = function() { this.src = 'icon.png?v=20250726-2'; };
+        img.onerror = function() { this.src = 'icon.png?v=20250726-3'; };
         const btn = document.createElement('button');
         btn.className = 'remove-btn';
         btn.textContent = '✖';
@@ -357,8 +362,9 @@
     }
   </script>
   <script>
+    // Service Worker 快取 busting
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('service-worker.js?v=20250726-2')
+      navigator.serviceWorker.register('service-worker.js?v=20250726-3')
         .then(function(reg) {
           // console.log('Service Worker registered.', reg);
         });
