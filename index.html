@@ -1,19 +1,237 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>My Photo PDF App</title>
-  <!-- 加上版本參數 v=20250726 -->
-  <link rel="manifest" href="manifest.json?v=20250726">
-  <link rel="icon" href="icon.png?v=20250726" type="image/png">
+  <link rel="manifest" href="manifest.json">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>文件拍照轉 PDF（手動裁切＋多種效果）</title>
+  <link href="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.css" rel="stylesheet"/>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 2em; }
+    .preview { display: flex; flex-wrap: wrap; gap: 10px; margin: 1em 0; }
+    .preview-item { position: relative; }
+    .preview-item img { width: 120px; border: 1px solid #aaa; border-radius: 4px; }
+    .remove-btn {
+      position: absolute; top: 2px; right: 2px;
+      background: rgba(255,0,0,0.8); color: #fff; border: none; border-radius: 3px;
+      cursor: pointer; font-size: 12px; padding: 2px 6px;
+    }
+    .actions { margin-bottom: 1em; }
+    button { font-size: 1em; margin-right: .5em; }
+    #loading { display:none; color: #009; font-weight: bold; }
+    #cropperModal { display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.8); align-items:center; justify-content:center; z-index:9999; }
+    #cropperModal .modal-content {
+      background:#fff; padding:1em; border-radius:10px; max-width:90vw; max-height:90vh; text-align:center;
+    }
+    #cropperImage { max-width:80vw; max-height:60vh; }
+    #cropperBtns { margin-top:1em; }
+    #effectSelect { font-size:1em; margin:0 1em; }
+    /* 新增瀏覽器提示樣式 */
+    #browserNotice {
+      background: #fff3cd;
+      color: #856404;
+      border: 1px solid #ffeeba;
+      padding: 16px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      font-size: 1.1em;
+      display: none;
+    }
+    #openBrowserBtn {
+      background: #2196F3;
+      color: #fff;
+      border: none;
+      border-radius: 5px;
+      padding: 10px 20px;
+      font-size: 1em;
+      cursor: pointer;
+      margin-left: 1em;
+    }
+  </style>
+  <script src="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 </head>
 <body>
-  <!-- 你的網頁內容 -->
-  <h1>My Photo PDF App</h1>
-  <img src="icon.png?v=20250726" alt="App icon">
-  <!-- 其他內容... -->
-  <!-- Service worker 一樣加參數 -->
-  <script src="service-worker.js?v=20250726"></script>
+  <!-- 新增LINE與App瀏覽器提醒 -->
+  <div id="browserNotice">
+    ⚠️ 請用瀏覽器開啟此網址，才能完整使用所有功能！
+    <button id="openBrowserBtn" onclick="window.open(location.href, '_blank')">用瀏覽器開啟</button>
+  </div>
+  <div class="actions">
+    <input type="file" id="fileInput" accept="image/*" multiple>
+    <button onclick="downloadPDF()">下載 PDF</button>
+    <select id="effectSelect">
+      <option value="none">原圖</option>
+      <option value="gray">灰階</option>
+      <option value="threshold">黑白（高反差）</option>
+      <option value="brighten">亮度提升</option>
+    </select>
+    <span id="loading">處理中，請稍候...</span>
+  </div>
+  <div class="preview" id="preview"></div>
+
+  <!-- 裁切 Modal -->
+  <div id="cropperModal">
+    <div class="modal-content">
+      <img id="cropperImage">
+      <div id="cropperBtns">
+        <button id="cropConfirmBtn">裁切完成</button>
+        <button id="cropCancelBtn">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // LINE 與 App 內建瀏覽器偵測
+    function detectAppBrowser() {
+      var ua = navigator.userAgent;
+      return /Line\/|FBAN|FBAV|Instagram|Messenger/.test(ua);
+    }
+    window.onload = function() {
+      if (detectAppBrowser()) {
+        document.getElementById('browserNotice').style.display = 'block';
+      }
+    };
+
+    // 圖片預覽、裁切、效果處理、PDF 下載
+    let images = [];
+    let cropper;
+    let cropIndex = null;
+
+    document.getElementById('fileInput').addEventListener('change', function(e) {
+      const files = e.target.files;
+      for (let i = 0; i < files.length; i++) {
+        const reader = new FileReader();
+        reader.onload = function(event) {
+          images.push({ src: event.target.result, effect: 'none' });
+          renderPreview();
+        };
+        reader.readAsDataURL(files[i]);
+      }
+    });
+
+    function renderPreview() {
+      const preview = document.getElementById('preview');
+      preview.innerHTML = '';
+      images.forEach((img, idx) => {
+        const div = document.createElement('div');
+        div.className = 'preview-item';
+        const image = document.createElement('img');
+        image.src = img.src;
+        image.onclick = () => openCropper(idx);
+        div.appendChild(image);
+
+        const btn = document.createElement('button');
+        btn.className = 'remove-btn';
+        btn.textContent = '移除';
+        btn.onclick = () => { images.splice(idx, 1); renderPreview(); };
+        div.appendChild(btn);
+
+        preview.appendChild(div);
+      });
+    }
+
+    function openCropper(idx) {
+      cropIndex = idx;
+      document.getElementById('cropperImage').src = images[idx].src;
+      document.getElementById('cropperModal').style.display = 'flex';
+      setTimeout(() => {
+        cropper = new Cropper(document.getElementById('cropperImage'), {
+          viewMode: 1,
+          movable: false,
+          zoomable: true,
+          scalable: false,
+          rotatable: false
+        });
+      }, 100);
+    }
+
+    document.getElementById('cropCancelBtn').onclick = () => {
+      cropper && cropper.destroy();
+      document.getElementById('cropperModal').style.display = 'none';
+    };
+    document.getElementById('cropConfirmBtn').onclick = () => {
+      images[cropIndex].src = cropper.getCroppedCanvas().toDataURL();
+      cropper.destroy();
+      document.getElementById('cropperModal').style.display = 'none';
+      renderPreview();
+    };
+
+    document.getElementById('effectSelect').onchange = function() {
+      const effect = this.value;
+      images.forEach(img => img.effect = effect);
+      renderPreview();
+    };
+
+    function applyEffect(imgObj) {
+      if (imgObj.effect === 'none') return imgObj.src;
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const image = new Image();
+      image.src = imgObj.src;
+      return new Promise(resolve => {
+        image.onload = function() {
+          canvas.width = image.width;
+          canvas.height = image.height;
+          ctx.drawImage(image, 0, 0);
+          let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          let data = imageData.data;
+          if (imgObj.effect === 'gray') {
+            for (let i = 0; i < data.length; i += 4) {
+              let avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
+              data[i] = data[i + 1] = data[i + 2] = avg;
+            }
+          } else if (imgObj.effect === 'threshold') {
+            for (let i = 0; i < data.length; i += 4) {
+              let avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
+              let val = avg > 128 ? 255 : 0;
+              data[i] = data[i + 1] = data[i + 2] = val;
+            }
+          } else if (imgObj.effect === 'brighten') {
+            for (let i = 0; i < data.length; i += 4) {
+              data[i] = Math.min(data[i] + 40, 255);
+              data[i + 1] = Math.min(data[i + 1] + 40, 255);
+              data[i + 2] = Math.min(data[i + 2] + 40, 255);
+            }
+          }
+          ctx.putImageData(imageData, 0, 0);
+          resolve(canvas.toDataURL());
+        };
+      });
+    }
+
+    async function downloadPDF() {
+      if (images.length === 0) return;
+      document.getElementById('loading').style.display = 'inline';
+      const { jsPDF } = window.jspdf;
+      const pdf = new jsPDF();
+      for (let i = 0; i < images.length; i++) {
+        const imgData = await applyEffect(images[i]);
+        const img = new Image();
+        img.src = imgData;
+        await new Promise(res => img.onload = res);
+        const width = pdf.internal.pageSize.getWidth();
+        const height = pdf.internal.pageSize.getHeight();
+        let ratio = Math.min(width / img.width, height / img.height);
+        let w = img.width * ratio;
+        let h = img.height * ratio;
+        let x = (width - w) / 2;
+        let y = (height - h) / 2;
+        if (i > 0) pdf.addPage();
+        pdf.addImage(img, 'JPEG', x, y, w, h);
+      }
+      pdf.save('photos.pdf');
+      document.getElementById('loading').style.display = 'none';
+    }
+  </script>
+  <script>
+    // Service Worker 註冊
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('service-worker.js')
+        .then(function(reg) {
+          // console.log('Service Worker registered.', reg);
+        });
+    }
+  </script>
 </body>
 </html>
