@@ -1,12 +1,12 @@
-const CACHE_VERSION = 'v20250726-7';
+const CACHE_VERSION = 'v20250726-8';
 const CACHE_NAME = `sw-cache-${CACHE_VERSION}`;
 
 const urlsToCache = [
   '/', // 根目錄
-  '/index.html?v=20250726-7',
-  '/manifest.json?v=20250726-7',
-  '/icon.png?v=20250726-7',
-  '/service-worker.js?v=20250726-7',
+  '/index.html?v=20250726-8',
+  '/manifest.json?v=20250726-8',
+  '/icon.png?v=20250726-8',
+  '/service-worker.js?v=20250726-8',
   'https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.css',
   'https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.js',
   'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js'
