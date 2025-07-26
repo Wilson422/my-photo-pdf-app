@@ -2,7 +2,8 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <link rel="manifest" href="manifest.json">
+  <!-- manifest 加版本參數 -->
+  <link rel="manifest" href="manifest.json?v=20250726">
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
   <title>文件拍照轉 PDF（手動裁切＋多種效果）</title>
   <link href="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.css" rel="stylesheet"/>
@@ -26,7 +27,6 @@
     #cropperImage { max-width:80vw; max-height:60vh; }
     #cropperBtns { margin-top:1em; }
     #effectSelect { font-size:1em; margin:0 1em; }
-    /* 新增瀏覽器提示樣式 */
     #browserNotice {
       background: #fff3cd;
       color: #856404;
@@ -48,11 +48,14 @@
       margin-left: 1em;
     }
   </style>
+  <!-- icon 加版本參數 -->
+  <link rel="icon" href="icon.png?v=20250726" type="image/png">
+  <!-- 若還有 apple-touch-icon，建議也加版本參數 -->
+  <!-- <link rel="apple-touch-icon" href="icon.png?v=20250726"> -->
   <script src="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 </head>
 <body>
-  <!-- 新增LINE與App瀏覽器提醒 -->
   <div id="browserNotice">
     ⚠️ 請用瀏覽器開啟此網址，才能完整使用所有功能！
     <button id="openBrowserBtn">用外部瀏覽器開啟</button>
@@ -69,7 +72,6 @@
   </div>
   <div class="preview" id="preview"></div>
 
-  <!-- 裁切 Modal -->
   <div id="cropperModal">
     <div class="modal-content">
       <img id="cropperImage">
@@ -89,10 +91,8 @@
   </div>
 
   <script>
-    // --- App 內建瀏覽器偵測 & 提示 ---
     function isInAppBrowser() {
       const ua = navigator.userAgent.toLowerCase();
-      // LINE, FB, IG, Messenger
       return (
         ua.indexOf(' line/') > -1 ||
         ua.indexOf('fbav') > -1 ||
@@ -101,13 +101,10 @@
       );
     }
     function openInBrowser() {
-      // 嘗試用不同方法喚起外部瀏覽器
       const url = window.location.href;
-      // Android Chrome
       if (navigator.userAgent.toLowerCase().indexOf('android') > -1) {
         window.location = 'intent://' + url.replace(/^https?:\/\//, '') + '#Intent;scheme=https;package=com.android.chrome;end';
       } else {
-        // iOS 或其他，提示用戶手動操作
         alert('請點畫面右上角 ...，並選擇「在瀏覽器中打開」。');
       }
     }
@@ -118,12 +115,10 @@
       }
     });
 
-    // --- 原本功能程式碼 ---
     const { jsPDF } = window.jspdf;
     let images = [];
     let cropper = null;
 
-    // 灰階處理
     function toGray(canvas) {
       const ctx = canvas.getContext('2d');
       let imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -135,26 +130,19 @@
       ctx.putImageData(imgData, 0, 0);
       return canvas;
     }
-
-    // 黑白強化（二值化，Otsu's method）
     function toBW(canvas) {
       const ctx = canvas.getContext('2d');
       let imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-
-      // 灰階
       for (let i = 0; i < imgData.data.length; i += 4) {
         let r = imgData.data[i], g = imgData.data[i+1], b = imgData.data[i+2];
         let gray = 0.299*r + 0.587*g + 0.114*b;
         imgData.data[i] = imgData.data[i+1] = imgData.data[i+2] = gray;
       }
-
-      // 計算直方圖
       let hist = new Array(256).fill(0);
       for (let i = 0; i < imgData.data.length; i += 4) {
         let gray = imgData.data[i];
         hist[Math.round(gray)]++;
       }
-      // Otsu
       let total = canvas.width * canvas.height;
       let sum = 0;
       for (let t=0; t<256; t++) sum += t * hist[t];
@@ -173,7 +161,6 @@
           threshold = t;
         }
       }
-      // 二值化
       for (let i = 0; i < imgData.data.length; i += 4) {
         let v = imgData.data[i] > threshold ? 255 : 0;
         imgData.data[i] = imgData.data[i+1] = imgData.data[i+2] = v;
@@ -182,7 +169,6 @@
       return canvas;
     }
 
-    // 開啟裁切Modal
     function openCropper(imageSrc, callback) {
       const modal = document.getElementById('cropperModal');
       const cropperImg = document.getElementById('cropperImage');
@@ -200,8 +186,6 @@
           autoCropArea: 1,
         });
       };
-
-      // 確定裁切
       document.getElementById('cropConfirmBtn').onclick = () => {
         if (!cropperInstance) return;
         const effect = document.getElementById('effectSelect').value;
@@ -219,7 +203,6 @@
         modal.style.display = 'none';
         callback(resultCanvas.toDataURL('image/jpeg', 0.92));
       };
-      // 取消
       document.getElementById('cropCancelBtn').onclick = () => {
         if (cropperInstance) cropperInstance.destroy();
         modal.style.display = 'none';
@@ -268,6 +251,8 @@
         div.className = 'preview-item';
         const img = document.createElement('img');
         img.src = src;
+        // 預覽圖片也加上版本參數，避免舊 icon 暫存
+        img.onerror = function() { this.src = 'icon.png?v=20250726'; };
         const btn = document.createElement('button');
         btn.className = 'remove-btn';
         btn.textContent = '✖';
@@ -281,7 +266,6 @@
       });
     }
 
-    // 命名規則：YYYYMMDD_HHmmss_轉檔.pdf
     function getPdfFilename() {
       const now = new Date();
       const yyyy = now.getFullYear();
@@ -318,6 +302,15 @@
       Promise.all(addImagePromises).then(() => {
         pdf.save(getPdfFilename());
       });
+    }
+  </script>
+  <!-- service worker 加版本參數 -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('service-worker.js?v=20250726')
+        .then(function(reg) {
+          // console.log('Service Worker registered.', reg);
+        });
     }
   </script>
 </body>
