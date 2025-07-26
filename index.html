@@ -4,8 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
   <title>文件拍照轉 PDF（手動裁切＋多種效果）</title>
-  <link rel="manifest" href="manifest.json?v=20250726-6">
-  <link rel="icon" href="icon.png?v=20250726-6" type="image/png">
+  <link rel="manifest" href="manifest.json?v=20250726-7">
+  <link rel="icon" href="icon.png?v=20250726-7" type="image/png">
   <link href="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.css" rel="stylesheet"/>
   <style>
     body { font-family: Arial, sans-serif; margin: 2em; background: #fff; }
@@ -44,19 +44,30 @@
       font-weight: bold;
       margin-left: 1em;
     }
-    #cropperModal { display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.8); align-items:center; justify-content:center; z-index:9999; }
+    #cropperModal {
+      display:none;
+      position:fixed;
+      top:0; left:0;
+      width:100vw;
+      height:100vh;
+      background:rgba(0,0,0,0.8);
+      align-items:center;
+      justify-content:center;
+      z-index:9999;
+      overscroll-behavior: contain;
+    }
     #cropperModal .modal-content {
       background: #fff;
       padding: 1em;
       border-radius: 10px;
       max-width: 95vw;
-      max-height: 92vh;
+      max-height: 80vh; /* 80vh 可安全呈現 */
       text-align: center;
       overflow-y: auto;
       display: flex;
       flex-direction: column;
       align-items: center;
-      justify-content: flex-start;
+      /* 保證內容永遠不會被底部遮住 */
     }
     #cropperTip {
       font-size: 1em;
@@ -67,7 +78,7 @@
     }
     #cropperImage {
       max-width: 82vw;
-      max-height: 45vh;
+      max-height: 35vh; /* 再縮小，確保下方有空間 */
       margin-bottom: 0.5em;
       touch-action: none;
       border: 1px solid #eee;
@@ -115,7 +126,7 @@
     }
     @media (max-width: 500px) {
       #cropperModal .modal-content { padding: 0.5em 0.2em 0.7em 0.2em; }
-      #cropperImage { max-width: 98vw; max-height: 40vh; }
+      #cropperImage { max-width: 98vw; max-height: 30vh; }
       #cropperBtns button { font-size: 0.97em; min-width: 70px; padding: 0.5em 0.7em; }
       .actions { gap: 0.3em; }
     }
@@ -213,11 +224,22 @@
       return canvas;
     }
 
+    function setModalContentHeight() {
+      // 真正可用高度（減去 iOS 可能的底部工具列/網址列）
+      var safeHeight = window.innerHeight - 20; // 可自行調整，20~60較安全
+      var modalContent = document.querySelector('#cropperModal .modal-content');
+      if (modalContent) {
+        modalContent.style.maxHeight = safeHeight + 'px';
+      }
+    }
+
     function openCropper(imageSrc, callback) {
       const modal = document.getElementById('cropperModal');
       const cropperImg = document.getElementById('cropperImage');
       cropperImg.src = imageSrc;
       modal.style.display = 'flex';
+      setModalContentHeight();
+      window.addEventListener('resize', setModalContentHeight);
       let cropperInstance = null;
       cropperImg.onload = () => {
         cropperInstance = new Cropper(cropperImg, {
@@ -253,11 +275,13 @@
         }
         cropperInstance.destroy();
         modal.style.display = 'none';
+        window.removeEventListener('resize', setModalContentHeight);
         callback(resultCanvas.toDataURL('image/jpeg', 0.92));
       };
       document.getElementById('cropCancelBtn').onclick = () => {
         if (cropperInstance) cropperInstance.destroy();
         modal.style.display = 'none';
+        window.removeEventListener('resize', setModalContentHeight);
       };
     }
 
@@ -303,7 +327,7 @@
         div.className = 'preview-item';
         const img = document.createElement('img');
         img.src = src;
-        img.onerror = function() { this.src = 'icon.png?v=20250726-6'; };
+        img.onerror = function() { this.src = 'icon.png?v=20250726-7'; };
         const btn = document.createElement('button');
         btn.className = 'remove-btn';
         btn.textContent = '✖';
@@ -357,7 +381,7 @@
   </script>
   <script>
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('service-worker.js?v=20250726-6')
+      navigator.serviceWorker.register('service-worker.js?v=20250726-7')
         .then(function(reg) {
           // console.log('Service Worker registered.', reg);
         });
