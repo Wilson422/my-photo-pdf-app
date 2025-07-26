@@ -4,8 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
   <title>文件拍照轉 PDF（手動裁切＋多種效果）</title>
-  <link rel="manifest" href="manifest.json?v=20250726-1">
-  <link rel="icon" href="icon.png?v=20250726-1" type="image/png">
+  <link rel="manifest" href="manifest.json?v=20250726-8">
+  <link rel="icon" href="icon.png?v=20250726-8" type="image/png">
   <link href="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.css" rel="stylesheet"/>
   <style>
     body { font-family: Arial, sans-serif; margin: 2em; background: #fff; }
@@ -61,7 +61,6 @@
       padding: 1em 0.5em;
       border-radius: 10px;
       max-width: 95vw;
-      /* 高度用 JS 動態設置 */
       text-align: center;
       overflow-y: auto;
       display: flex;
@@ -77,7 +76,7 @@
     }
     #cropperImage {
       max-width: 82vw;
-      max-height: 28vh; /* 再縮小，確保下方有空間 */
+      max-height: 28vh;
       margin-bottom: 0.5em;
       touch-action: none;
       border: 1px solid #eee;
@@ -135,6 +134,22 @@
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 </head>
 <body>
+  <!-- LINE瀏覽器警告彈窗 -->
+  <div id="lineWarningModal" style="display:none;position:fixed;z-index:99999;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.7);align-items:center;justify-content:center;">
+    <div style="background:#fff;padding:2em 1em;border-radius:12px;max-width:90vw;text-align:center;box-shadow:0 6px 24px #0002;">
+      <h3 style="color:#1976d2;">⚠️ 提示</h3>
+      <div style="font-size:1.18em;color:#444;margin:1em 0 1.8em 0;font-weight:bold;">
+        建議使用預設瀏覽器（Safari/Chrome），<br>LINE瀏覽器部分功能可能異常。
+      </div>
+      <button id="openInBrowserBtn" style="font-size:1em;padding:0.8em 1.5em;border-radius:8px;border:none;background:#1976d2;color:#fff;box-shadow:0 2px 8px #0001;cursor:pointer;">
+        用預設瀏覽器開啟本頁
+      </button>
+      <br><br>
+      <button onclick="document.getElementById('lineWarningModal').style.display='none'" style="color:#1976d2;background:#fff;border:1px solid #1976d2;padding:0.4em 1em;border-radius:7px;font-size:0.98em;box-shadow:none;cursor:pointer;">
+        關閉
+      </button>
+    </div>
+  </div>
   <h2>📄 文件拍照轉 PDF（手動裁切＋多種效果）</h2>
   <div class="actions">
     <input type="file" accept="image/*" capture="environment" id="cameraInput">
@@ -170,6 +185,36 @@
   </div>
 
   <script>
+    // LINE瀏覽器判斷與跳轉
+    function isLineBrowser() {
+      return navigator.userAgent.toLowerCase().indexOf('line') !== -1;
+    }
+    function getCurrentUrl() {
+      return window.location.href.split('#')[0];
+    }
+    function openInBrowser() {
+      var url = getCurrentUrl();
+      // Android: intent 跳 Chrome
+      if (/android/i.test(navigator.userAgent)) {
+        var intentUrl = 'intent://' + url.replace(/^https?:\/\//, '') +
+          '#Intent;scheme=https;package=com.android.chrome;end';
+        window.location = intentUrl;
+      } else if (/iphone|ipad|ipod/i.test(navigator.userAgent)) {
+        // iOS: 開新分頁（其實還是LINE內建，但用戶可以手動從分享選單開Safari）
+        window.open(url, '_blank');
+      } else {
+        // 其他平台，直接跳新分頁
+        window.open(url, '_blank');
+      }
+    }
+    window.addEventListener('DOMContentLoaded', function() {
+      if (isLineBrowser()) {
+        document.getElementById('lineWarningModal').style.display = 'flex';
+        var btn = document.getElementById('openInBrowserBtn');
+        btn.onclick = openInBrowser;
+      }
+    });
+
     const { jsPDF } = window.jspdf;
     let images = [];
     let cropper = null;
@@ -226,8 +271,7 @@
 
     // 動態設置 modal-content 的最大高度
     function setModalContentHeight() {
-      // iOS/Safari/LINE 用 innerHeight，安卓也適用
-      var safeHeight = window.innerHeight - 28; // 再多扣一點，確保底部完全露出
+      var safeHeight = window.innerHeight - 28;
       var modalContent = document.querySelector('#cropperModal .modal-content');
       if (modalContent) {
         modalContent.style.maxHeight = safeHeight + 'px';
@@ -328,7 +372,7 @@
         div.className = 'preview-item';
         const img = document.createElement('img');
         img.src = src;
-        img.onerror = function() { this.src = 'icon.png?v=20250726-1'; };
+        img.onerror = function() { this.src = 'icon.png?v=20250726-8'; };
         const btn = document.createElement('button');
         btn.className = 'remove-btn';
         btn.textContent = '✖';
@@ -382,7 +426,7 @@
   </script>
   <script>
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('service-worker.js?v=20250726-1')
+      navigator.serviceWorker.register('service-worker.js?v=20250726-8')
         .then(function(reg) {
           // console.log('Service Worker registered.', reg);
         });
