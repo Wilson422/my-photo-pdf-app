@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <!-- manifest 加版本參數 -->
-  <link rel="manifest" href="manifest.json?v=20250726">
+  <link rel="manifest" href="manifest.json?v=20250726-1">
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
   <title>文件拍照轉 PDF（手動裁切＋多種效果）</title>
   <link href="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.css" rel="stylesheet"/>
@@ -22,11 +22,30 @@
     #loading { display:none; color: #009; font-weight: bold; }
     #cropperModal { display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.8); align-items:center; justify-content:center; z-index:9999; }
     #cropperModal .modal-content {
-      background:#fff; padding:1em; border-radius:10px; max-width:90vw; max-height:90vh; text-align:center;
+      background: #fff;
+      padding: 1em;
+      border-radius: 10px;
+      max-width: 90vw;
+      max-height: 80vh;      /* 原90vh，改80vh */
+      text-align: center;
+      overflow-y: auto;      /* 讓內容可捲動 */
+      display: flex;
+      flex-direction: column;
+      align-items: center;
     }
-    #cropperImage { max-width:80vw; max-height:60vh; }
-    #cropperBtns { margin-top:1em; }
-    #effectSelect { font-size:1em; margin:0 1em; }
+    #cropperImage {
+      max-width: 80vw;
+      max-height: 50vh;      /* 原60vh，改50vh */
+    }
+    /* --- CropperJS 控制點放大 --- */
+    .cropper-point {
+      width: 30px !important;
+      height: 30px !important;
+      background-color: #2196F3 !important;
+      opacity: 0.8 !important;
+      border-radius: 50% !important;
+    }
+    /* 新增瀏覽器提示樣式 */
     #browserNotice {
       background: #fff3cd;
       color: #856404;
@@ -49,9 +68,8 @@
     }
   </style>
   <!-- icon 加版本參數 -->
-  <link rel="icon" href="icon.png?v=20250726" type="image/png">
-  <!-- 若還有 apple-touch-icon，建議也加版本參數 -->
-  <!-- <link rel="apple-touch-icon" href="icon.png?v=20250726"> -->
+  <link rel="icon" href="icon.png?v=20250726-1" type="image/png">
+  <!-- <link rel="apple-touch-icon" href="icon.png?v=20250726-1"> -->
   <script src="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 </head>
@@ -83,7 +101,7 @@
           <option value="bw">黑白（強化對比）</option>
         </select>
       </div>
-      <div id="cropperBtns">
+      <div id="cropperBtns" style="margin-top:1em;display:flex;gap:1em;">
         <button id="cropConfirmBtn">確定裁切</button>
         <button id="cropCancelBtn">取消</button>
       </div>
@@ -251,8 +269,7 @@
         div.className = 'preview-item';
         const img = document.createElement('img');
         img.src = src;
-        // 預覽圖片也加上版本參數，避免舊 icon 暫存
-        img.onerror = function() { this.src = 'icon.png?v=20250726'; };
+        img.onerror = function() { this.src = 'icon.png?v=20250726-1'; };
         const btn = document.createElement('button');
         btn.className = 'remove-btn';
         btn.textContent = '✖';
@@ -307,7 +324,7 @@
   <!-- service worker 加版本參數 -->
   <script>
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('service-worker.js?v=20250726')
+      navigator.serviceWorker.register('service-worker.js?v=20250726-1')
         .then(function(reg) {
           // console.log('Service Worker registered.', reg);
         });
