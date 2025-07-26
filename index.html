@@ -4,8 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
   <title>文件拍照轉 PDF（手動裁切＋多種效果）</title>
-  <link rel="manifest" href="manifest.json?v=20250726-1">
-  <link rel="icon" href="icon.png?v=20250726-1" type="image/png">
+  <link rel="manifest" href="manifest.json?v=20250726-6">
+  <link rel="icon" href="icon.png?v=20250726-6" type="image/png">
   <link href="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.css" rel="stylesheet"/>
   <style>
     body { font-family: Arial, sans-serif; margin: 2em; background: #fff; }
@@ -17,10 +17,33 @@
       background: rgba(255,0,0,0.8); color: #fff; border: none; border-radius: 3px;
       cursor: pointer; font-size: 12px; padding: 2px 6px;
     }
-    .actions { margin-bottom: 1em; }
-    button { font-size: 1em; margin-right: .5em; border: none; background: #f5f5f5; color: #333; padding: 0.7em 1.2em; border-radius: 6px; }
-    button:hover, button:focus { background: #e0e0e0; color: #222; }
-    #loading { display:none; color: #009; font-weight: bold; }
+    .actions {
+      margin-bottom: 1em;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.5em;
+    }
+    .actions input[type="file"] {
+      display: none;
+    }
+    .actions button {
+      flex: 0 0 auto;
+      font-size: 1em;
+      margin-right: 0;
+      border: none;
+      background: #f5f5f5;
+      color: #333;
+      padding: 0.7em 1.2em;
+      border-radius: 6px;
+    }
+    .actions button:hover, .actions button:focus { background: #e0e0e0; color: #222; }
+    #loading {
+      display:none;
+      color: #009;
+      font-weight: bold;
+      margin-left: 1em;
+    }
     #cropperModal { display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.8); align-items:center; justify-content:center; z-index:9999; }
     #cropperModal .modal-content {
       background: #fff;
@@ -94,6 +117,7 @@
       #cropperModal .modal-content { padding: 0.5em 0.2em 0.7em 0.2em; }
       #cropperImage { max-width: 98vw; max-height: 40vh; }
       #cropperBtns button { font-size: 0.97em; min-width: 70px; padding: 0.5em 0.7em; }
+      .actions { gap: 0.3em; }
     }
   </style>
   <script src="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.js"></script>
@@ -102,8 +126,8 @@
 <body>
   <h2>📄 文件拍照轉 PDF（手動裁切＋多種效果）</h2>
   <div class="actions">
-    <input type="file" accept="image/*" capture="environment" id="cameraInput" style="display:none">
-    <input type="file" accept="image/*" multiple id="fileInput" style="display:none">
+    <input type="file" accept="image/*" capture="environment" id="cameraInput">
+    <input type="file" accept="image/*" multiple id="fileInput">
     <button onclick="document.getElementById('cameraInput').click()">📷 拍照</button>
     <button onclick="document.getElementById('fileInput').click()">🖼️ 選照片</button>
     <button onclick="generatePDF()">🧾 產生 PDF</button>
@@ -279,7 +303,7 @@
         div.className = 'preview-item';
         const img = document.createElement('img');
         img.src = src;
-        img.onerror = function() { this.src = 'icon.png?v=20250726-1'; };
+        img.onerror = function() { this.src = 'icon.png?v=20250726-6'; };
         const btn = document.createElement('button');
         btn.className = 'remove-btn';
         btn.textContent = '✖';
@@ -333,7 +357,7 @@
   </script>
   <script>
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('service-worker.js?v=20250726-1')
+      navigator.serviceWorker.register('service-worker.js?v=20250726-6')
         .then(function(reg) {
           // console.log('Service Worker registered.', reg);
         });
