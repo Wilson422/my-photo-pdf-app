@@ -2,100 +2,74 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <link rel="manifest" href="manifest.json?v=20250726-5">
+  <!-- manifest 可以移除，不會有安裝提示 -->
+  <!-- <link rel="manifest" href="manifest.json?v=20250726-1"> -->
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
   <title>文件拍照轉 PDF（手動裁切＋多種效果）</title>
   <link href="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.css" rel="stylesheet"/>
   <style>
-    body { font-family: Arial, sans-serif; margin: 2em; background: #f3f3f3; }
+    body { font-family: Arial, sans-serif; margin: 2em; background: #fff; }
     .preview { display: flex; flex-wrap: wrap; gap: 10px; margin: 1em 0; }
     .preview-item { position: relative; }
-    .preview-item img { width: 120px; border: 1px solid #aaa; border-radius: 4px; background: #fff; }
+    .preview-item img { width: 120px; border: 1px solid #aaa; border-radius: 4px; }
     .remove-btn {
       position: absolute; top: 2px; right: 2px;
       background: rgba(255,0,0,0.8); color: #fff; border: none; border-radius: 3px;
       cursor: pointer; font-size: 12px; padding: 2px 6px;
     }
     .actions { margin-bottom: 1em; }
-    button { font-size: 1em; margin-right: .5em; border-radius: 6px; border: none; padding: 0.7em 1.2em; background: #1976d2; color: #fff; transition: background .2s; }
-    button:hover, button:focus { background: #1565c0; }
+    button { font-size: 1em; margin-right: .5em; border: none; background: #f5f5f5; color: #333; padding: 0.7em 1.2em; border-radius: 6px; }
+    button:hover, button:focus { background: #e0e0e0; color: #222; }
     #loading { display:none; color: #009; font-weight: bold; }
     #cropperModal { display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(0,0,0,0.8); align-items:center; justify-content:center; z-index:9999; }
     #cropperModal .modal-content {
       background: #fff;
-      padding: 1.2em 1em 1em 1em;
-      border-radius: 14px;
-      max-width: 94vw;
-      max-height: 95vh;
+      padding: 1em;
+      border-radius: 10px;
+      max-width: 95vw;
+      max-height: 92vh;
       text-align: center;
       overflow-y: auto;
       display: flex;
       flex-direction: column;
       align-items: center;
-      box-shadow: 0 8px 32px rgba(60,70,100,0.15);
+      justify-content: flex-start;
     }
     #cropperTip {
-      font-size: 1.08em;
-      color: #333;
-      margin-bottom: .8em;
-      margin-top: .3em;
-      font-weight: 600;
-      line-height: 1.6;
+      font-size: 1em;
+      color: #555;
+      margin-bottom: .5em;
+      margin-top: .5em;
+      font-weight: bold;
     }
-    #cropperTip span { color: #1976d2; font-weight: bold; }
     #cropperImage {
       max-width: 82vw;
-      max-height: 52vh;
-      margin-bottom: 0.8em;
+      max-height: 45vh; /* 總高只佔一半，下方空間固定 */
+      margin-bottom: 0.5em;
       touch-action: none;
-      border: 1px solid #e0e0e0;
-      background: #f8f8f8;
-      border-radius: 8px;
-      box-shadow: 0 2px 12px rgba(60,70,100,0.10);
+      border: 1px solid #eee;
+      background: #fafafa;
+      border-radius: 4px;
     }
-    /* --- CropperJS 控制點放大 --- */
     .cropper-point {
-      width: 32px !important;
-      height: 32px !important;
+      width: 30px !important;
+      height: 30px !important;
       background-color: #2196F3 !important;
-      opacity: 0.85 !important;
+      opacity: 0.8 !important;
       border-radius: 50% !important;
-      border: 2px solid #fff !important;
-      box-shadow: 0 1px 7px rgba(0,0,0,0.20);
-      z-index: 3 !important;
-    }
-    #browserNotice {
-      background: #fff3cd;
-      color: #856404;
-      border: 1px solid #ffeeba;
-      padding: 16px;
-      border-radius: 8px;
-      margin-bottom: 20px;
-      font-size: 1.1em;
-      display: none;
-    }
-    #openBrowserBtn {
-      background: #2196F3;
-      color: #fff;
-      border: none;
-      border-radius: 5px;
-      padding: 10px 20px;
-      font-size: 1em;
-      cursor: pointer;
-      margin-left: 1em;
     }
     #effectSelect {
       font-size: 1em;
       margin: 0 1em;
-      padding: 0.4em 0.8em;
+      padding: 0.3em 0.8em;
       border-radius: 5px;
       border: 1px solid #b0b0b0;
-      background: #f3f3f3;
+      background: #fafafa;
       color: #333;
     }
     #cropperBtns {
       min-height: 70px;
-      margin-top: 1.3em;
+      margin-top: 1em;
       display: flex;
       gap: 1em;
       flex-wrap: wrap;
@@ -103,40 +77,31 @@
       width: 100%;
     }
     #cropperBtns button {
-      min-width: 90px;
-      background: #fff;
-      color: #1976d2;
-      border: 1.5px solid #1976d2;
-      font-weight: 600;
-      font-size: 1.08em;
-      padding: 0.6em 1.2em;
-      border-radius: 8px;
-      box-shadow: 0 2px 8px rgba(60,70,100,0.06);
+      min-width: 80px;
+      font-size: 1em;
+      padding: 0.6em 1em;
+      background: #f5f5f5;
+      color: #333;
+      border-radius: 6px;
+      border: none;
       margin: 0 2px;
-      transition: background .18s, color .18s;
     }
     #cropperBtns button:hover, #cropperBtns button:focus {
-      background: #1976d2;
-      color: #fff;
-      border-color: #1976d2;
+      background: #e0e0e0;
+      color: #222;
     }
     @media (max-width: 500px) {
-      #cropperModal .modal-content { padding: 0.7em 0.3em 0.8em 0.3em; }
-      #cropperImage { max-width: 98vw; max-height: 45vh; }
-      #cropperBtns button { font-size: 0.98em; min-width: 80px; padding: 0.5em 0.8em; }
+      #cropperModal .modal-content { padding: 0.5em 0.2em 0.7em 0.2em; }
+      #cropperImage { max-width: 98vw; max-height: 40vh; }
+      #cropperBtns button { font-size: 0.97em; min-width: 70px; padding: 0.5em 0.7em; }
     }
   </style>
-  <link rel="icon" href="icon.png?v=20250726-5" type="image/png">
+  <link rel="icon" href="icon.png?v=20250726-1" type="image/png">
   <script src="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 </head>
 <body>
-  <div id="browserNotice">
-    ⚠️ 請用瀏覽器開啟此網址，才能完整使用所有功能！
-    <button id="openBrowserBtn">用外部瀏覽器開啟</button>
-  </div>
-
-  <h2 style="color:#1976d2;font-weight:700;margin-top:0.4em;margin-bottom:0.6em;text-shadow:0 1px 3px #e0e0e0;">📄 文件拍照轉 PDF（手動裁切＋多種效果）</h2>
+  <h2>📄 文件拍照轉 PDF（手動裁切＋多種效果）</h2>
   <div class="actions">
     <input type="file" accept="image/*" capture="environment" id="cameraInput" style="display:none">
     <input type="file" accept="image/*" multiple id="fileInput" style="display:none">
@@ -151,7 +116,7 @@
     <div class="modal-content">
       <div id="cropperTip">
         單指拖曳移動、雙指縮放、點選圓點調整裁切範圍<br>
-        <span>如偏移請用「重設」回正</span>
+        <span style="color: #1976d2;">如偏移請用「重設」回正</span>
       </div>
       <img id="cropperImage">
       <div style="margin-top:1em;">
@@ -171,30 +136,6 @@
   </div>
 
   <script>
-    function isInAppBrowser() {
-      const ua = navigator.userAgent.toLowerCase();
-      return (
-        ua.indexOf(' line/') > -1 ||
-        ua.indexOf('fbav') > -1 ||
-        ua.indexOf('instagram') > -1 ||
-        ua.indexOf('messenger') > -1
-      );
-    }
-    function openInBrowser() {
-      const url = window.location.href;
-      if (navigator.userAgent.toLowerCase().indexOf('android') > -1) {
-        window.location = 'intent://' + url.replace(/^https?:\/\//, '') + '#Intent;scheme=https;package=com.android.chrome;end';
-      } else {
-        alert('請點畫面右上角 ...，並選擇「在瀏覽器中打開」。');
-      }
-    }
-    window.addEventListener('DOMContentLoaded', function() {
-      if (isInAppBrowser()) {
-        document.getElementById('browserNotice').style.display = '';
-        document.getElementById('openBrowserBtn').onclick = openInBrowser;
-      }
-    });
-
     const { jsPDF } = window.jspdf;
     let images = [];
     let cropper = null;
@@ -267,10 +208,7 @@
           minCropBoxWidth: 50,
           minCropBoxHeight: 50,
           dragMode: 'move',
-          toggleDragModeOnDblclick: false,
-          cropBoxResizable: true,
-          cropBoxMovable: true
-          // cropBox 會自動限制在圖片範圍 (CropperJS 預設)
+          toggleDragModeOnDblclick: false
         });
         cropper = cropperInstance;
       };
@@ -342,7 +280,7 @@
         div.className = 'preview-item';
         const img = document.createElement('img');
         img.src = src;
-        img.onerror = function() { this.src = 'icon.png?v=20250726-5'; };
+        img.onerror = function() { this.src = 'icon.png?v=20250726-1'; };
         const btn = document.createElement('button');
         btn.className = 'remove-btn';
         btn.textContent = '✖';
@@ -392,15 +330,6 @@
       Promise.all(addImagePromises).then(() => {
         pdf.save(getPdfFilename());
       });
-    }
-  </script>
-  <script>
-    // Service Worker 快取 busting
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('service-worker.js?v=20250726-5')
-        .then(function(reg) {
-          // console.log('Service Worker registered.', reg);
-        });
     }
   </script>
 </body>
