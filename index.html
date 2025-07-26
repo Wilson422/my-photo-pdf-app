@@ -4,8 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
   <title>文件拍照轉 PDF（手動裁切＋多種效果）</title>
-  <link rel="manifest" href="manifest.json?v=20250726-9">
-  <link rel="icon" href="icon.png?v=20250726-9" type="image/png">
+  <link rel="manifest" href="manifest.json?v=20250726-10">
+  <link rel="icon" href="icon.png?v=20250726-10" type="image/png">
   <link href="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.css" rel="stylesheet"/>
   <style>
     body { font-family: Arial, sans-serif; margin: 2em; background: #fff; }
@@ -77,15 +77,13 @@
     #cropperImage {
       width: auto;
       height: auto;
-      max-width: 98vw;
-      max-height: 28vh;
+      display: block;
       margin-bottom: 0.5em;
       touch-action: none;
       border: 1px solid #eee;
       background: #fafafa;
       border-radius: 4px;
       box-sizing: border-box;
-      display: block;
       object-fit: contain;
     }
     .cropper-point {
@@ -129,7 +127,6 @@
     }
     @media (max-width: 500px) {
       #cropperModal .modal-content { padding: 0.5em 0.2em 0.7em 0.2em; }
-      #cropperImage { max-width: 98vw; max-height: 24vh; }
       #cropperBtns button { font-size: 0.97em; min-width: 70px; padding: 0.5em 0.7em; }
       .actions { gap: 0.3em; }
     }
@@ -282,6 +279,36 @@
       }
     }
 
+    // 動態最佳化裁切區圖片顯示大小
+    function setCropperImageSize() {
+      const modalContent = document.querySelector('#cropperModal .modal-content');
+      const cropperImg = document.getElementById('cropperImage');
+      // 預留下方（效果選單＋按鈕）約110px
+      const safeHeight = modalContent ? modalContent.clientHeight : window.innerHeight - 28;
+      const reservedHeight = 110;
+      const maxImgHeight = safeHeight - reservedHeight;
+      const maxImgWidth = window.innerWidth * 0.98; // 幾乎全螢幕
+      // 讀取圖片原始比例
+      const img = cropperImg;
+      if (img.naturalWidth && img.naturalHeight) {
+        const imgRatio = img.naturalWidth / img.naturalHeight;
+        const screenRatio = maxImgWidth / maxImgHeight;
+        if (imgRatio > screenRatio) {
+          // 寬圖，優先生效maxImgWidth
+          cropperImg.style.width = maxImgWidth + 'px';
+          cropperImg.style.height = 'auto';
+        } else {
+          // 高圖，優先生效maxImgHeight
+          cropperImg.style.height = maxImgHeight + 'px';
+          cropperImg.style.width = 'auto';
+        }
+      } else {
+        // fallback
+        cropperImg.style.maxWidth = maxImgWidth + 'px';
+        cropperImg.style.maxHeight = maxImgHeight + 'px';
+      }
+    }
+
     function openCropper(imageSrc, callback) {
       const modal = document.getElementById('cropperModal');
       const cropperImg = document.getElementById('cropperImage');
@@ -289,8 +316,10 @@
       modal.style.display = 'flex';
       setModalContentHeight();
       window.addEventListener('resize', setModalContentHeight);
+
       let cropperInstance = null;
       cropperImg.onload = () => {
+        setCropperImageSize(); // <<-- 呼叫此函數
         cropperInstance = new Cropper(cropperImg, {
           viewMode: 1,
           aspectRatio: NaN,
@@ -376,7 +405,7 @@
         div.className = 'preview-item';
         const img = document.createElement('img');
         img.src = src;
-        img.onerror = function() { this.src = 'icon.png?v=20250726-9'; };
+        img.onerror = function() { this.src = 'icon.png?v=20250726-10'; };
         const btn = document.createElement('button');
         btn.className = 'remove-btn';
         btn.textContent = '✖';
@@ -430,7 +459,7 @@
   </script>
   <script>
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('service-worker.js?v=20250726-9')
+      navigator.serviceWorker.register('service-worker.js?v=20250726-10')
         .then(function(reg) {
           // console.log('Service Worker registered.', reg);
         });
