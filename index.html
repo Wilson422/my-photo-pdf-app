@@ -55,18 +55,17 @@
   <!-- 新增LINE與App瀏覽器提醒 -->
   <div id="browserNotice">
     ⚠️ 請用瀏覽器開啟此網址，才能完整使用所有功能！
-    <button id="openBrowserBtn" onclick="window.open(location.href, '_blank')">用瀏覽器開啟</button>
+    <button id="openBrowserBtn">用外部瀏覽器開啟</button>
   </div>
+
+  <h2>📄 文件拍照轉 PDF（手動裁切＋多種效果）</h2>
   <div class="actions">
-    <input type="file" id="fileInput" accept="image/*" multiple>
-    <button onclick="downloadPDF()">下載 PDF</button>
-    <select id="effectSelect">
-      <option value="none">原圖</option>
-      <option value="gray">灰階</option>
-      <option value="threshold">黑白（高反差）</option>
-      <option value="brighten">亮度提升</option>
-    </select>
-    <span id="loading">處理中，請稍候...</span>
+    <input type="file" accept="image/*" capture="environment" id="cameraInput" style="display:none">
+    <input type="file" accept="image/*" multiple id="fileInput" style="display:none">
+    <button onclick="document.getElementById('cameraInput').click()">📷 拍照</button>
+    <button onclick="document.getElementById('fileInput').click()">🖼️ 選照片</button>
+    <button onclick="generatePDF()">🧾 產生 PDF</button>
+    <span id="loading">圖片處理中，請稍候...</span>
   </div>
   <div class="preview" id="preview"></div>
 
@@ -74,163 +73,251 @@
   <div id="cropperModal">
     <div class="modal-content">
       <img id="cropperImage">
+      <div style="margin-top:1em;">
+        <label for="effectSelect">效果：</label>
+        <select id="effectSelect">
+          <option value="original">原色</option>
+          <option value="gray">灰階</option>
+          <option value="bw">黑白（強化對比）</option>
+        </select>
+      </div>
       <div id="cropperBtns">
-        <button id="cropConfirmBtn">裁切完成</button>
+        <button id="cropConfirmBtn">確定裁切</button>
         <button id="cropCancelBtn">取消</button>
       </div>
     </div>
   </div>
 
   <script>
-    // LINE 與 App 內建瀏覽器偵測
-    function detectAppBrowser() {
-      var ua = navigator.userAgent;
-      return /Line\/|FBAN|FBAV|Instagram|Messenger/.test(ua);
+    // --- App 內建瀏覽器偵測 & 提示 ---
+    function isInAppBrowser() {
+      const ua = navigator.userAgent.toLowerCase();
+      // LINE, FB, IG, Messenger
+      return (
+        ua.indexOf(' line/') > -1 ||
+        ua.indexOf('fbav') > -1 ||
+        ua.indexOf('instagram') > -1 ||
+        ua.indexOf('messenger') > -1
+      );
     }
-    window.onload = function() {
-      if (detectAppBrowser()) {
-        document.getElementById('browserNotice').style.display = 'block';
+    function openInBrowser() {
+      // 嘗試用不同方法喚起外部瀏覽器
+      const url = window.location.href;
+      // Android Chrome
+      if (navigator.userAgent.toLowerCase().indexOf('android') > -1) {
+        window.location = 'intent://' + url.replace(/^https?:\/\//, '') + '#Intent;scheme=https;package=com.android.chrome;end';
+      } else {
+        // iOS 或其他，提示用戶手動操作
+        alert('請點畫面右上角 ...，並選擇「在瀏覽器中打開」。');
       }
-    };
-
-    // 圖片預覽、裁切、效果處理、PDF 下載
-    let images = [];
-    let cropper;
-    let cropIndex = null;
-
-    document.getElementById('fileInput').addEventListener('change', function(e) {
-      const files = e.target.files;
-      for (let i = 0; i < files.length; i++) {
-        const reader = new FileReader();
-        reader.onload = function(event) {
-          images.push({ src: event.target.result, effect: 'none' });
-          renderPreview();
-        };
-        reader.readAsDataURL(files[i]);
+    }
+    window.addEventListener('DOMContentLoaded', function() {
+      if (isInAppBrowser()) {
+        document.getElementById('browserNotice').style.display = '';
+        document.getElementById('openBrowserBtn').onclick = openInBrowser;
       }
     });
 
-    function renderPreview() {
+    // --- 原本功能程式碼 ---
+    const { jsPDF } = window.jspdf;
+    let images = [];
+    let cropper = null;
+
+    // 灰階處理
+    function toGray(canvas) {
+      const ctx = canvas.getContext('2d');
+      let imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      for (let i = 0; i < imgData.data.length; i += 4) {
+        let r = imgData.data[i], g = imgData.data[i+1], b = imgData.data[i+2];
+        let gray = 0.299*r + 0.587*g + 0.114*b;
+        imgData.data[i] = imgData.data[i+1] = imgData.data[i+2] = gray;
+      }
+      ctx.putImageData(imgData, 0, 0);
+      return canvas;
+    }
+
+    // 黑白強化（二值化，Otsu's method）
+    function toBW(canvas) {
+      const ctx = canvas.getContext('2d');
+      let imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+      // 灰階
+      for (let i = 0; i < imgData.data.length; i += 4) {
+        let r = imgData.data[i], g = imgData.data[i+1], b = imgData.data[i+2];
+        let gray = 0.299*r + 0.587*g + 0.114*b;
+        imgData.data[i] = imgData.data[i+1] = imgData.data[i+2] = gray;
+      }
+
+      // 計算直方圖
+      let hist = new Array(256).fill(0);
+      for (let i = 0; i < imgData.data.length; i += 4) {
+        let gray = imgData.data[i];
+        hist[Math.round(gray)]++;
+      }
+      // Otsu
+      let total = canvas.width * canvas.height;
+      let sum = 0;
+      for (let t=0; t<256; t++) sum += t * hist[t];
+      let sumB = 0, wB = 0, wF = 0, varMax = 0, threshold = 0;
+      for (let t=0; t<256; t++) {
+        wB += hist[t];
+        if (!wB) continue;
+        wF = total - wB;
+        if (!wF) break;
+        sumB += t * hist[t];
+        let mB = sumB / wB;
+        let mF = (sum - sumB) / wF;
+        let varBetween = wB * wF * Math.pow(mB - mF, 2);
+        if (varBetween > varMax) {
+          varMax = varBetween;
+          threshold = t;
+        }
+      }
+      // 二值化
+      for (let i = 0; i < imgData.data.length; i += 4) {
+        let v = imgData.data[i] > threshold ? 255 : 0;
+        imgData.data[i] = imgData.data[i+1] = imgData.data[i+2] = v;
+      }
+      ctx.putImageData(imgData, 0, 0);
+      return canvas;
+    }
+
+    // 開啟裁切Modal
+    function openCropper(imageSrc, callback) {
+      const modal = document.getElementById('cropperModal');
+      const cropperImg = document.getElementById('cropperImage');
+      cropperImg.src = imageSrc;
+      modal.style.display = 'flex';
+      let cropperInstance = null;
+      cropperImg.onload = () => {
+        cropperInstance = new Cropper(cropperImg, {
+          viewMode: 1,
+          aspectRatio: NaN,
+          movable: true,
+          zoomable: true,
+          rotatable: true,
+          scalable: true,
+          autoCropArea: 1,
+        });
+      };
+
+      // 確定裁切
+      document.getElementById('cropConfirmBtn').onclick = () => {
+        if (!cropperInstance) return;
+        const effect = document.getElementById('effectSelect').value;
+        const croppedCanvas = cropperInstance.getCroppedCanvas();
+        let resultCanvas = document.createElement('canvas');
+        resultCanvas.width = croppedCanvas.width;
+        resultCanvas.height = croppedCanvas.height;
+        resultCanvas.getContext('2d').drawImage(croppedCanvas,0,0);
+        if(effect === "gray") {
+          toGray(resultCanvas);
+        } else if(effect === "bw") {
+          toBW(resultCanvas);
+        }
+        cropperInstance.destroy();
+        modal.style.display = 'none';
+        callback(resultCanvas.toDataURL('image/jpeg', 0.92));
+      };
+      // 取消
+      document.getElementById('cropCancelBtn').onclick = () => {
+        if (cropperInstance) cropperInstance.destroy();
+        modal.style.display = 'none';
+      };
+    }
+
+    function handleFiles(files) {
+      if (!files.length) return;
+      document.getElementById('loading').style.display = '';
+      let idx = 0;
+      function next() {
+        if (idx >= files.length) {
+          document.getElementById('loading').style.display = 'none';
+          return;
+        }
+        const file = files[idx];
+        if (!file.type.startsWith('image/')) { idx++; next(); return; }
+        const reader = new FileReader();
+        reader.onload = e => {
+          openCropper(e.target.result, (croppedDataUrl) => {
+            images.push(croppedDataUrl);
+            updatePreview();
+            idx++;
+            next();
+          });
+        };
+        reader.readAsDataURL(file);
+      }
+      next();
+    }
+
+    document.getElementById('cameraInput').addEventListener('change', e => {
+      handleFiles(e.target.files);
+      e.target.value = '';
+    });
+    document.getElementById('fileInput').addEventListener('change', e => {
+      handleFiles(e.target.files);
+      e.target.value = '';
+    });
+
+    function updatePreview() {
       const preview = document.getElementById('preview');
       preview.innerHTML = '';
-      images.forEach((img, idx) => {
+      images.forEach((src, i) => {
         const div = document.createElement('div');
         div.className = 'preview-item';
-        const image = document.createElement('img');
-        image.src = img.src;
-        image.onclick = () => openCropper(idx);
-        div.appendChild(image);
-
+        const img = document.createElement('img');
+        img.src = src;
         const btn = document.createElement('button');
         btn.className = 'remove-btn';
-        btn.textContent = '移除';
-        btn.onclick = () => { images.splice(idx, 1); renderPreview(); };
+        btn.textContent = '✖';
+        btn.onclick = () => {
+          images.splice(i, 1);
+          updatePreview();
+        };
+        div.appendChild(img);
         div.appendChild(btn);
-
         preview.appendChild(div);
       });
     }
 
-    function openCropper(idx) {
-      cropIndex = idx;
-      document.getElementById('cropperImage').src = images[idx].src;
-      document.getElementById('cropperModal').style.display = 'flex';
-      setTimeout(() => {
-        cropper = new Cropper(document.getElementById('cropperImage'), {
-          viewMode: 1,
-          movable: false,
-          zoomable: true,
-          scalable: false,
-          rotatable: false
-        });
-      }, 100);
+    // 命名規則：YYYYMMDD_HHmmss_轉檔.pdf
+    function getPdfFilename() {
+      const now = new Date();
+      const yyyy = now.getFullYear();
+      const mm = String(now.getMonth() + 1).padStart(2, "0");
+      const dd = String(now.getDate()).padStart(2, "0");
+      const hh = String(now.getHours()).padStart(2, "0");
+      const min = String(now.getMinutes()).padStart(2, "0");
+      const ss = String(now.getSeconds()).padStart(2, "0");
+      return `${yyyy}${mm}${dd}_${hh}${min}${ss}_轉檔.pdf`;
     }
 
-    document.getElementById('cropCancelBtn').onclick = () => {
-      cropper && cropper.destroy();
-      document.getElementById('cropperModal').style.display = 'none';
-    };
-    document.getElementById('cropConfirmBtn').onclick = () => {
-      images[cropIndex].src = cropper.getCroppedCanvas().toDataURL();
-      cropper.destroy();
-      document.getElementById('cropperModal').style.display = 'none';
-      renderPreview();
-    };
-
-    document.getElementById('effectSelect').onchange = function() {
-      const effect = this.value;
-      images.forEach(img => img.effect = effect);
-      renderPreview();
-    };
-
-    function applyEffect(imgObj) {
-      if (imgObj.effect === 'none') return imgObj.src;
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      const image = new Image();
-      image.src = imgObj.src;
-      return new Promise(resolve => {
-        image.onload = function() {
-          canvas.width = image.width;
-          canvas.height = image.height;
-          ctx.drawImage(image, 0, 0);
-          let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-          let data = imageData.data;
-          if (imgObj.effect === 'gray') {
-            for (let i = 0; i < data.length; i += 4) {
-              let avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
-              data[i] = data[i + 1] = data[i + 2] = avg;
-            }
-          } else if (imgObj.effect === 'threshold') {
-            for (let i = 0; i < data.length; i += 4) {
-              let avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
-              let val = avg > 128 ? 255 : 0;
-              data[i] = data[i + 1] = data[i + 2] = val;
-            }
-          } else if (imgObj.effect === 'brighten') {
-            for (let i = 0; i < data.length; i += 4) {
-              data[i] = Math.min(data[i] + 40, 255);
-              data[i + 1] = Math.min(data[i + 1] + 40, 255);
-              data[i + 2] = Math.min(data[i + 2] + 40, 255);
-            }
-          }
-          ctx.putImageData(imageData, 0, 0);
-          resolve(canvas.toDataURL());
-        };
-      });
-    }
-
-    async function downloadPDF() {
-      if (images.length === 0) return;
-      document.getElementById('loading').style.display = 'inline';
-      const { jsPDF } = window.jspdf;
-      const pdf = new jsPDF();
-      for (let i = 0; i < images.length; i++) {
-        const imgData = await applyEffect(images[i]);
-        const img = new Image();
-        img.src = imgData;
-        await new Promise(res => img.onload = res);
-        const width = pdf.internal.pageSize.getWidth();
-        const height = pdf.internal.pageSize.getHeight();
-        let ratio = Math.min(width / img.width, height / img.height);
-        let w = img.width * ratio;
-        let h = img.height * ratio;
-        let x = (width - w) / 2;
-        let y = (height - h) / 2;
-        if (i > 0) pdf.addPage();
-        pdf.addImage(img, 'JPEG', x, y, w, h);
+    function generatePDF() {
+      if (images.length === 0) {
+        alert('請先新增照片');
+        return;
       }
-      pdf.save('photos.pdf');
-      document.getElementById('loading').style.display = 'none';
-    }
-  </script>
-  <script>
-    // Service Worker 註冊
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('service-worker.js')
-        .then(function(reg) {
-          // console.log('Service Worker registered.', reg);
+      const pdf = new jsPDF({ unit: 'pt', format: 'a4' });
+      let addImagePromises = images.map((src, idx) => {
+        return new Promise((resolve) => {
+          const img = new Image();
+          img.onload = () => {
+            let pdfW = pdf.internal.pageSize.getWidth();
+            let pdfH = pdf.internal.pageSize.getHeight();
+            let ratio = Math.min(pdfW / img.width, pdfH / img.height);
+            let w = img.width * ratio, h = img.height * ratio;
+            let x = (pdfW - w) / 2, y = (pdfH - h) / 2;
+            if (idx > 0) pdf.addPage();
+            pdf.addImage(img, 'JPEG', x, y, w, h);
+            resolve();
+          };
+          img.src = src;
         });
+      });
+      Promise.all(addImagePromises).then(() => {
+        pdf.save(getPdfFilename());
+      });
     }
   </script>
 </body>
