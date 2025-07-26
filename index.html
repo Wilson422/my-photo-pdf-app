@@ -2,10 +2,10 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8">
-  <!-- manifest 可以移除，不會有安裝提示 -->
-  <!-- <link rel="manifest" href="manifest.json?v=20250726-1"> -->
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
   <title>文件拍照轉 PDF（手動裁切＋多種效果）</title>
+  <link rel="manifest" href="manifest.json?v=20250726-1">
+  <link rel="icon" href="icon.png?v=20250726-1" type="image/png">
   <link href="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.css" rel="stylesheet"/>
   <style>
     body { font-family: Arial, sans-serif; margin: 2em; background: #fff; }
@@ -44,7 +44,7 @@
     }
     #cropperImage {
       max-width: 82vw;
-      max-height: 45vh; /* 總高只佔一半，下方空間固定 */
+      max-height: 45vh;
       margin-bottom: 0.5em;
       touch-action: none;
       border: 1px solid #eee;
@@ -96,7 +96,6 @@
       #cropperBtns button { font-size: 0.97em; min-width: 70px; padding: 0.5em 0.7em; }
     }
   </style>
-  <link rel="icon" href="icon.png?v=20250726-1" type="image/png">
   <script src="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 </head>
@@ -330,6 +329,14 @@
       Promise.all(addImagePromises).then(() => {
         pdf.save(getPdfFilename());
       });
+    }
+  </script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('service-worker.js?v=20250726-1')
+        .then(function(reg) {
+          // console.log('Service Worker registered.', reg);
+        });
     }
   </script>
 </body>
