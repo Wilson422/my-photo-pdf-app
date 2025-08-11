@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>文件拍照轉 PDF（裁切 / 濾鏡 / 自動橫直向 / 排序 / 暫存）</title>
-<link rel="manifest" href="manifest.json?v=20250811-3">
-<link rel="icon" href="icon.png?v=20250811-3" type="image/png">
+<link rel="manifest" href="manifest.json?v=20250811-4">
+<link rel="icon" href="icon.png?v=20250811-4" type="image/png">
 <link href="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.css" rel="stylesheet"/>
 <style>
   body { font-family: Arial,"Noto Sans TC",sans-serif; margin:1.4em; background:#fff; }
@@ -417,7 +417,7 @@ function updatePreview(){
     const img=document.createElement('img');
     img.src=o.previewDataUrl;
     img.alt='第 '+(idx+1)+' 張';
-    img.onerror=()=>{ img.src='icon.png?v=20250811-3'; };
+    img.onerror=()=>{ img.src='icon.png?v=20250811-4'; };
     div.appendChild(img);
 
     const del=document.createElement('button');
@@ -514,7 +514,7 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   updatePreview();
 });
 if ('serviceWorker' in navigator){
-  navigator.serviceWorker.register('service-worker.js?v=20250811-3').catch(()=>{});
+  navigator.serviceWorker.register('service-worker.js?v=20250811-4').catch(()=>{});
 }
 </script>
 </body>
