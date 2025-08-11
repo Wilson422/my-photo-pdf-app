@@ -7,7 +7,6 @@
 <link rel="manifest" href="manifest.json?v=20250811-3">
 <link rel="icon" href="icon.png?v=20250811-3" type="image/png">
 <link href="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.css" rel="stylesheet"/>
-
 <style>
   body { font-family: Arial,"Noto Sans TC",sans-serif; margin:1.4em; background:#fff; }
   h2 { margin-top:0; }
@@ -20,14 +19,8 @@
   .actions button:hover { background:#e6e6e6; }
   button.danger { background:#ffecec; color:#b80000; }
   button.danger:hover { background:#ffd5d5; }
-  button.alt { background:#eef6ff; color:#0d5fae; }
-  button.alt:hover { background:#d7ebff; }
   #loading { display:none; font-size:.85em; color:#004; font-weight:bold; }
-  #infoBar {
-    font-size:.72em; background:#fafafa; padding:.6em .8em; border:1px solid #e3e3e3;
-    border-radius:6px; line-height:1.5; margin-bottom:.8em; max-width:860px;
-  }
-  #storageInfo { font-size:.7em; color:#666; margin:.3em 0 .8em; }
+  #storageInfo { font-size:.8em; color:#666; margin:.25em 0 .8em; }
   #preview {
     display:flex; flex-wrap:wrap; gap:10px; margin-top:.8em;
   }
@@ -93,7 +86,7 @@
   @media (max-width:560px) {
     .thumb { width:30vw; max-width:150px; }
     #cropperImage { max-width:96vw; max-height:24vh; }
-    #infoBar { font-size:.78em; }
+    #storageInfo { font-size:.9em; }
     .actions button { font-size:.82em; padding:.58em .85em; }
   }
 </style>
@@ -115,10 +108,6 @@
 </div>
 
 <h2>📄 文件拍照轉 PDF</h2>
-<div id="infoBar">
-  功能：裁切＋濾鏡 / 自動橫直向 PDF / 排序（使用 ↑ ↓ 按鈕） / 自動暫存（IndexedDB） / 圖片壓縮與縮圖分離。<br>
-  操作：新增圖片→裁切→使用縮圖上的 ↑ ↓ 改順序→產生 PDF。
-</div>
 
 <div class="actions">
   <input type="file" accept="image/*" capture="environment" id="cameraInput">
@@ -127,11 +116,10 @@
   <button onclick="triggerFile()">🖼️ 選照片</button>
   <button onclick="generatePDF()">🧾 產生 PDF</button>
   <button class="danger" onclick="clearAllImages()">🗑️ 清除全部</button>
-  <button class="alt" onclick="clearStorageOnly()">🧹 清除暫存</button>
   <span id="loading">處理中...</span>
 </div>
 
-<div id="storageInfo">載入中…</div>
+<div id="storageInfo"></div>
 <div id="preview"></div>
 
 <!-- 裁切 Modal -->
@@ -156,34 +144,24 @@
 </div>
 
 <script>
-/* ==============================
-   CONFIG 可調參數
-   ============================== */
 const CONFIG = {
-  FULL_MAX_DIM: 2000,       // 壓縮後原圖最大長邊
-  PREVIEW_MAX_WIDTH: 420,   // 縮圖最大寬
-  PREVIEW_BG: '#ffffff',    // 縮圖背景
-  IMAGE_QUALITY: 0.9,       // JPEG 品質
+  FULL_MAX_DIM: 2000,       
+  PREVIEW_MAX_WIDTH: 420,   
+  PREVIEW_BG: '#ffffff',    
+  IMAGE_QUALITY: 0.9,       
   DB_NAME: 'doc2pdf_db_v1',
   DB_VERSION: 1,
   STORE_IMAGES: 'images',
   STORE_META: 'meta',
   SAVE_DEBOUNCE: 500
 };
-
-/* ==============================
-   狀態
-   ============================== */
-let images = []; // {id, fullDataUrl, previewDataUrl, w, h, ts}
+let images = [];
 let cropper = null;
 const { jsPDF } = window.jspdf;
 let db = null;
 let saveTimer = null;
 let useLocalStorageFallback = false;
 
-/* ==============================
-   常用
-   ============================== */
 function uuid(){ return 'xxxxxxxx'.replace(/x/g,()=> (Math.random()*16|0).toString(16))+Date.now().toString(16); }
 function isLineBrowser(){ return navigator.userAgent.toLowerCase().includes('line'); }
 function openExternalBrowser(){
@@ -195,10 +173,6 @@ function openExternalBrowser(){
     window.open(url,'_blank');
   }
 }
-
-/* ==============================
-   IndexedDB
-   ============================== */
 function openDB(){
   return new Promise(res=>{
     if (!('indexedDB' in window)){
@@ -280,26 +254,12 @@ function loadFromLocalStorage(){
     if (Array.isArray(data.images)){ images = data.images; updatePreview(); updateStorageInfoEstimate(); }
   }catch(e){ console.warn(e); }
 }
-function clearStorageOnly(){
-  if (useLocalStorageFallback) localStorage.removeItem('doc2pdf_backup_v1');
-  else if (db){
-    const tx = db.transaction([CONFIG.STORE_IMAGES, CONFIG.STORE_META],'readwrite');
-    tx.objectStore(CONFIG.STORE_IMAGES).clear();
-    tx.objectStore(CONFIG.STORE_META).clear();
-  }
-  updateStorageInfoEstimate();
-  alert('已清除暫存（目前畫面圖片仍保留）');
-}
 function clearAllImages(){
   if (!confirm('確定刪除全部圖片？')) return;
   images = [];
   updatePreview();
   debounceSave();
 }
-
-/* ==============================
-   圖片處理
-   ============================== */
 function createResizedCanvas(img,maxDim){
   const r = img.width / img.height;
   let w=img.width,h=img.height;
@@ -363,10 +323,6 @@ function processCroppedCanvas(croppedCanvas,effect){
     temp.src = croppedCanvas.toDataURL('image/jpeg', 0.98);
   });
 }
-
-/* ==============================
-   裁切
-   ============================== */
 function openCropper(dataUrl){
   return new Promise((resolve,reject)=>{
     const modal=document.getElementById('cropperModal');
@@ -404,10 +360,6 @@ function setModalContentHeight(){
   if(!c)return;
   c.style.maxHeight=(window.innerHeight-30)+'px';
 }
-
-/* ==============================
-   檔案處理
-   ============================== */
 function handleFiles(fileList){
   if (!fileList.length) return;
   const loading=document.getElementById('loading');
@@ -449,10 +401,6 @@ document.getElementById('cameraInput').addEventListener('change',e=>{
 document.getElementById('fileInput').addEventListener('change',e=>{
   handleFiles(e.target.files); e.target.value='';
 });
-
-/* ==============================
-   預覽 / 排序（↑ ↓）
-   ============================== */
 function updatePreview(){
   const container=document.getElementById('preview');
   container.innerHTML='';
@@ -518,10 +466,6 @@ function updatePreview(){
   });
   updateStorageInfoEstimate();
 }
-
-/* ==============================
-   PDF
-   ============================== */
 function getPdfFilename(){
   const d=new Date(), p=n=>String(n).padStart(2,'0');
   return d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+'_'+
@@ -549,10 +493,6 @@ function generatePDF(){
   });
   pdf.save(getPdfFilename());
 }
-
-/* ==============================
-   儲存估算
-   ============================== */
 function estimateSize(){
   let total=0;
   images.forEach(o=>{
@@ -562,15 +502,8 @@ function estimateSize(){
 }
 function updateStorageInfoEstimate(){
   const el=document.getElementById('storageInfo');
-  const bytes=estimateSize();
-  const kb=(bytes/1024).toFixed(1);
-  const mb=(bytes/1024/1024).toFixed(2);
-  el.textContent=`圖片數：${images.length} 估計佔用：${kb} KB (${mb} MB) 儲存方式：${useLocalStorageFallback?'localStorage':'IndexedDB'}（排序已永遠啟用，使用 ↑ ↓ 調整）`;
+  el.textContent=`目前圖片數量：${images.length}`;
 }
-
-/* ==============================
-   初始化
-   ============================== */
 window.addEventListener('DOMContentLoaded', async ()=>{
   if (isLineBrowser()){
     document.getElementById('lineWarningModal').style.display='flex';
