@@ -1,440 +1,588 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1.0">
-  <title>文件拍照轉 PDF（手動裁切＋多種效果）</title>
-  <link rel="manifest" href="manifest.json?v=20250726-1">
-  <link rel="icon" href="icon.png?v=20250726-1" type="image/png">
-  <link href="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.css" rel="stylesheet"/>
-  <style>
-    body { font-family: Arial, sans-serif; margin: 2em; background: #fff; }
-    .preview { display: flex; flex-wrap: wrap; gap: 10px; margin: 1em 0; }
-    .preview-item { position: relative; }
-    .preview-item img { width: 120px; border: 1px solid #aaa; border-radius: 4px; }
-    .remove-btn {
-      position: absolute; top: 2px; right: 2px;
-      background: rgba(255,0,0,0.8); color: #fff; border: none; border-radius: 3px;
-      cursor: pointer; font-size: 12px; padding: 2px 6px;
-    }
-    .actions {
-      margin-bottom: 1em;
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 0.5em;
-    }
-    .actions input[type="file"] {
-      display: none;
-    }
-    .actions button {
-      flex: 0 0 auto;
-      font-size: 1em;
-      margin-right: 0;
-      border: none;
-      background: #f5f5f5;
-      color: #333;
-      padding: 0.7em 1.2em;
-      border-radius: 6px;
-    }
-    .actions button:hover, .actions button:focus { background: #e0e0e0; color: #222; }
-    #loading {
-      display:none;
-      color: #009;
-      font-weight: bold;
-      margin-left: 1em;
-    }
-    #cropperModal {
-      display:none;
-      position:fixed;
-      top:0; left:0;
-      width:100vw;
-      height:100vh;
-      background:rgba(0,0,0,0.8);
-      align-items:center;
-      justify-content:center;
-      z-index:9999;
-      overscroll-behavior: contain;
-    }
-    #cropperModal .modal-content {
-      background: #fff;
-      padding: 1em 0.5em;
-      border-radius: 10px;
-      max-width: 95vw;
-      text-align: center;
-      overflow-y: auto;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-    }
-    #cropperTip {
-      font-size: 1em;
-      color: #555;
-      margin-bottom: .5em;
-      margin-top: .5em;
-      font-weight: bold;
-    }
-    #cropperImage {
-      width: auto;
-      height: auto;
-      max-width: 98vw;
-      max-height: 28vh;
-      margin-bottom: 0.5em;
-      touch-action: none;
-      border: 1px solid #eee;
-      background: #fafafa;
-      border-radius: 4px;
-      box-sizing: border-box;
-      display: block;
-      object-fit: contain;
-    }
-    .cropper-point {
-      width: 30px !important;
-      height: 30px !important;
-      background-color: #2196F3 !important;
-      opacity: 0.8 !important;
-      border-radius: 50% !important;
-    }
-    #effectSelect {
-      font-size: 1em;
-      margin: 0 1em;
-      padding: 0.3em 0.8em;
-      border-radius: 5px;
-      border: 1px solid #b0b0b0;
-      background: #fafafa;
-      color: #333;
-    }
-    #cropperBtns {
-      min-height: 55px;
-      margin-top: 1.2em;
-      display: flex;
-      gap: 1em;
-      flex-wrap: wrap;
-      justify-content: center;
-      width: 100%;
-    }
-    #cropperBtns button {
-      min-width: 90px;
-      font-size: 1em;
-      padding: 0.7em 1.1em;
-      background: #f5f5f5;
-      color: #333;
-      border-radius: 6px;
-      border: none;
-      margin: 0 2px;
-    }
-    #cropperBtns button:hover, #cropperBtns button:focus {
-      background: #e0e0e0;
-      color: #222;
-    }
-    @media (max-width: 500px) {
-      #cropperModal .modal-content { padding: 0.5em 0.2em 0.7em 0.2em; }
-      #cropperImage { max-width: 98vw; max-height: 24vh; }
-      #cropperBtns button { font-size: 0.97em; min-width: 70px; padding: 0.5em 0.7em; }
-      .actions { gap: 0.3em; }
-    }
-  </style>
-  <script src="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>文件拍照轉 PDF（裁切 / 濾鏡 / 自動橫直向 / 排序 / 暫存）</title>
+<link rel="manifest" href="manifest.json?v=20250811-3">
+<link rel="icon" href="icon.png?v=20250811-3" type="image/png">
+<link href="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.css" rel="stylesheet"/>
+
+<style>
+  body { font-family: Arial,"Noto Sans TC",sans-serif; margin:1.4em; background:#fff; }
+  h2 { margin-top:0; }
+  .actions { display:flex; flex-wrap:wrap; gap:.55em; align-items:center; margin-bottom:.6em; }
+  .actions input[type=file]{ display:none; }
+  .actions button {
+    background:#f5f5f5; border:none; padding:.62em 1.05em; font-size:.9em;
+    border-radius:6px; cursor:pointer; line-height:1; letter-spacing:.5px;
+  }
+  .actions button:hover { background:#e6e6e6; }
+  button.danger { background:#ffecec; color:#b80000; }
+  button.danger:hover { background:#ffd5d5; }
+  button.alt { background:#eef6ff; color:#0d5fae; }
+  button.alt:hover { background:#d7ebff; }
+  #loading { display:none; font-size:.85em; color:#004; font-weight:bold; }
+  #infoBar {
+    font-size:.72em; background:#fafafa; padding:.6em .8em; border:1px solid #e3e3e3;
+    border-radius:6px; line-height:1.5; margin-bottom:.8em; max-width:860px;
+  }
+  #storageInfo { font-size:.7em; color:#666; margin:.3em 0 .8em; }
+  #preview {
+    display:flex; flex-wrap:wrap; gap:10px; margin-top:.8em;
+  }
+  .thumb {
+    position:relative; width:128px; border:2px solid transparent; border-radius:8px;
+    background:#fafafa; padding:4px 4px 30px; box-sizing:border-box;
+    user-select:none; -webkit-user-select:none;
+    transition:border-color .15s, box-shadow .15s;
+  }
+  .thumb img {
+    width:100%; height:auto; display:block; border:1px solid #bbb;
+    border-radius:5px; background:#fff; object-fit:contain;
+  }
+  .remove-btn {
+    position:absolute; top:4px; right:4px; background:rgba(255,0,0,.85);
+    color:#fff; border:none; border-radius:4px; font-size:11px;
+    padding:2px 6px; cursor:pointer;
+  }
+  .order-label {
+    position:absolute; top:4px; left:4px;
+    background:#1976d2; color:#fff; font-size:11px;
+    padding:2px 6px; border-radius:4px; font-weight:bold; opacity:.9;
+  }
+  .move-bar {
+    position:absolute; bottom:2px; left:4px; right:4px;
+    display:flex; justify-content:center; gap:6px;
+  }
+  .move-btn {
+    background:#f2f2f2; border:1px solid #ccc; font-size:11px; padding:4px 6px;
+    border-radius:4px; cursor:pointer;
+  }
+  .move-btn:hover { background:#e5e5e5; }
+  #lineWarningModal { font-size:.95em; }
+  #cropperModal {
+    position:fixed; inset:0; background:rgba(0,0,0,.78);
+    display:none; align-items:center; justify-content:center; z-index:9999;
+    overscroll-behavior:contain;
+  }
+  #cropperModal .modal-content {
+    background:#fff; padding:1em .6em; border-radius:12px;
+    max-width:95vw; max-height:82vh; overflow:auto;
+    text-align:center; display:flex; flex-direction:column; align-items:center;
+  }
+  #cropperTip { font-size:.85em; color:#555; line-height:1.4; font-weight:bold; }
+  #cropperImage {
+    max-width:82vw; max-height:28vh; margin:.55em 0 .4em;
+    background:#fafafa; border:1px solid #eee; border-radius:6px;
+    touch-action:none;
+  }
+  #effectSelect {
+    font-size:.9em; padding:.35em .7em; border:1px solid #bbb; border-radius:6px; background:#fafafa;
+  }
+  #cropperBtns { margin-top:.9em; display:flex; flex-wrap:wrap; gap:.6em; }
+  #cropperBtns button {
+    background:#f5f5f5; border:none; border-radius:6px; padding:.55em .9em;
+    font-size:.85em; cursor:pointer;
+  }
+  #cropperBtns button:hover { background:#e4e4e4; }
+  .cropper-point {
+    width:30px !important; height:30px !important; background:#1976d2 !important;
+    opacity:.85 !important; border-radius:50% !important;
+  }
+  @media (max-width:560px) {
+    .thumb { width:30vw; max-width:150px; }
+    #cropperImage { max-width:96vw; max-height:24vh; }
+    #infoBar { font-size:.78em; }
+    .actions button { font-size:.82em; padding:.58em .85em; }
+  }
+</style>
+<script src="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 </head>
 <body>
-  <!-- LINE瀏覽器警告彈窗 -->
-  <div id="lineWarningModal" style="display:none;position:fixed;z-index:99999;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.7);align-items:center;justify-content:center;">
-    <div style="background:#fff;padding:2em 1em;border-radius:12px;max-width:90vw;text-align:center;box-shadow:0 6px 24px #0002;">
-      <h3 style="color:#1976d2;">⚠️ 提示</h3>
-      <div style="font-size:1.18em;color:#444;margin:1em 0 1.8em 0;font-weight:bold;">
-        建議使用預設瀏覽器（Safari/Chrome），<br>LINE瀏覽器部分功能可能異常。
-      </div>
-      <button id="openInBrowserBtn" style="font-size:1em;padding:0.8em 1.5em;border-radius:8px;border:none;background:#1976d2;color:#fff;box-shadow:0 2px 8px #0001;cursor:pointer;">
-        用預設瀏覽器開啟本頁
-      </button>
-      <br><br>
-      <button onclick="document.getElementById('lineWarningModal').style.display='none'" style="color:#1976d2;background:#fff;border:1px solid #1976d2;padding:0.4em 1em;border-radius:7px;font-size:0.98em;box-shadow:none;cursor:pointer;">
-        關閉
-      </button>
+<!-- LINE 瀏覽器提示 -->
+<div id="lineWarningModal" style="display:none;position:fixed;z-index:99999;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.7);align-items:center;justify-content:center;">
+  <div style="background:#fff;padding:1.8em 1.2em;border-radius:14px;max-width:90vw;text-align:center;box-shadow:0 6px 24px #0002;">
+    <h3 style="color:#1976d2;margin-top:0;font-size:1.1em;">⚠️ 提示</h3>
+    <div style="font-size:.95em;color:#444;margin:1em 0 1.2em;font-weight:bold;">
+      建議使用預設瀏覽器（Safari/Chrome）開啟；LINE 內建瀏覽器功能可能受限。
+    </div>
+    <button id="openInBrowserBtn" style="font-size:.85em;padding:.65em 1.2em;border-radius:8px;border:none;background:#1976d2;color:#fff;cursor:pointer;">用預設瀏覽器開啟本頁</button>
+    <br><br>
+    <button onclick="document.getElementById('lineWarningModal').style.display='none'" style="color:#1976d2;background:#fff;border:1px solid #1976d2;padding:.45em 1.1em;border-radius:7px;font-size:.8em;cursor:pointer;">關閉</button>
+  </div>
+</div>
+
+<h2>📄 文件拍照轉 PDF</h2>
+<div id="infoBar">
+  功能：裁切＋濾鏡 / 自動橫直向 PDF / 排序（使用 ↑ ↓ 按鈕） / 自動暫存（IndexedDB） / 圖片壓縮與縮圖分離。<br>
+  操作：新增圖片→裁切→使用縮圖上的 ↑ ↓ 改順序→產生 PDF。
+</div>
+
+<div class="actions">
+  <input type="file" accept="image/*" capture="environment" id="cameraInput">
+  <input type="file" accept="image/*" multiple id="fileInput">
+  <button onclick="triggerCamera()">📷 拍照</button>
+  <button onclick="triggerFile()">🖼️ 選照片</button>
+  <button onclick="generatePDF()">🧾 產生 PDF</button>
+  <button class="danger" onclick="clearAllImages()">🗑️ 清除全部</button>
+  <button class="alt" onclick="clearStorageOnly()">🧹 清除暫存</button>
+  <span id="loading">處理中...</span>
+</div>
+
+<div id="storageInfo">載入中…</div>
+<div id="preview"></div>
+
+<!-- 裁切 Modal -->
+<div id="cropperModal">
+  <div class="modal-content">
+    <div id="cropperTip">單指拖移、雙指縮放、調整裁切範圍<br><span style="color:#1976d2;">如偏移請點「重設」</span></div>
+    <img id="cropperImage" alt="待裁切">
+    <div>
+      <label for="effectSelect">效果：</label>
+      <select id="effectSelect">
+        <option value="original">原色</option>
+        <option value="gray">灰階</option>
+        <option value="bw">黑白（高對比）</option>
+      </select>
+    </div>
+    <div id="cropperBtns">
+      <button id="cropResetBtn" type="button">重設</button>
+      <button id="cropConfirmBtn" type="button">確定裁切</button>
+      <button id="cropCancelBtn" type="button">取消</button>
     </div>
   </div>
-  <h2>📄 文件拍照轉 PDF（手動裁切＋多種效果）</h2>
-  <div class="actions">
-    <input type="file" accept="image/*" capture="environment" id="cameraInput">
-    <input type="file" accept="image/*" multiple id="fileInput">
-    <button onclick="document.getElementById('cameraInput').click()">📷 拍照</button>
-    <button onclick="document.getElementById('fileInput').click()">🖼️ 選照片</button>
-    <button onclick="generatePDF()">🧾 產生 PDF</button>
-    <span id="loading">圖片處理中，請稍候...</span>
-  </div>
-  <div class="preview" id="preview"></div>
+</div>
 
-  <div id="cropperModal">
-    <div class="modal-content">
-      <div id="cropperTip">
-        單指拖曳移動、雙指縮放、點選圓點調整裁切範圍<br>
-        <span style="color: #1976d2;">如偏移請用「重設」回正</span>
-      </div>
-      <img id="cropperImage">
-      <div style="margin-top:1em;">
-        <label for="effectSelect">效果：</label>
-        <select id="effectSelect">
-          <option value="original">原色</option>
-          <option value="gray">灰階</option>
-          <option value="bw">黑白（強化對比）</option>
-        </select>
-      </div>
-      <div id="cropperBtns">
-        <button id="cropResetBtn" type="button">重設</button>
-        <button id="cropConfirmBtn" type="button">確定裁切</button>
-        <button id="cropCancelBtn" type="button">取消</button>
-      </div>
-    </div>
-  </div>
+<script>
+/* ==============================
+   CONFIG 可調參數
+   ============================== */
+const CONFIG = {
+  FULL_MAX_DIM: 2000,       // 壓縮後原圖最大長邊
+  PREVIEW_MAX_WIDTH: 420,   // 縮圖最大寬
+  PREVIEW_BG: '#ffffff',    // 縮圖背景
+  IMAGE_QUALITY: 0.9,       // JPEG 品質
+  DB_NAME: 'doc2pdf_db_v1',
+  DB_VERSION: 1,
+  STORE_IMAGES: 'images',
+  STORE_META: 'meta',
+  SAVE_DEBOUNCE: 500
+};
 
-  <script>
-    // LINE瀏覽器判斷與跳轉
-    function isLineBrowser() {
-      return navigator.userAgent.toLowerCase().indexOf('line') !== -1;
-    }
-    function getCurrentUrl() {
-      return window.location.href.split('#')[0];
-    }
-    function openInBrowser() {
-      var url = getCurrentUrl();
-      // Android: intent 跳 Chrome
-      if (/android/i.test(navigator.userAgent)) {
-        var intentUrl = 'intent://' + url.replace(/^https?:\/\//, '') +
-          '#Intent;scheme=https;package=com.android.chrome;end';
-        window.location = intentUrl;
-      } else if (/iphone|ipad|ipod/i.test(navigator.userAgent)) {
-        // iOS: 開新分頁（其實還是LINE內建，但用戶可以手動從分享選單開Safari）
-        window.open(url, '_blank');
-      } else {
-        // 其他平台，直接跳新分頁
-        window.open(url, '_blank');
-      }
-    }
-    window.addEventListener('DOMContentLoaded', function() {
-      if (isLineBrowser()) {
-        document.getElementById('lineWarningModal').style.display = 'flex';
-        var btn = document.getElementById('openInBrowserBtn');
-        btn.onclick = openInBrowser;
-      }
-    });
+/* ==============================
+   狀態
+   ============================== */
+let images = []; // {id, fullDataUrl, previewDataUrl, w, h, ts}
+let cropper = null;
+const { jsPDF } = window.jspdf;
+let db = null;
+let saveTimer = null;
+let useLocalStorageFallback = false;
 
-    const { jsPDF } = window.jspdf;
-    let images = [];
-    let cropper = null;
+/* ==============================
+   常用
+   ============================== */
+function uuid(){ return 'xxxxxxxx'.replace(/x/g,()=> (Math.random()*16|0).toString(16))+Date.now().toString(16); }
+function isLineBrowser(){ return navigator.userAgent.toLowerCase().includes('line'); }
+function openExternalBrowser(){
+  const url = location.href.split('#')[0];
+  if (/android/i.test(navigator.userAgent)) {
+    const intentUrl = 'intent://' + url.replace(/^https?:\/\//,'') + '#Intent;scheme=https;package=com.android.chrome;end';
+    location.href = intentUrl;
+  } else {
+    window.open(url,'_blank');
+  }
+}
 
-    function toGray(canvas) {
-      const ctx = canvas.getContext('2d');
-      let imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      for (let i = 0; i < imgData.data.length; i += 4) {
-        let r = imgData.data[i], g = imgData.data[i+1], b = imgData.data[i+2];
-        let gray = 0.299*r + 0.587*g + 0.114*b;
-        imgData.data[i] = imgData.data[i+1] = imgData.data[i+2] = gray;
-      }
-      ctx.putImageData(imgData, 0, 0);
-      return canvas;
+/* ==============================
+   IndexedDB
+   ============================== */
+function openDB(){
+  return new Promise(res=>{
+    if (!('indexedDB' in window)){
+      useLocalStorageFallback = true; return res();
     }
-    function toBW(canvas) {
-      const ctx = canvas.getContext('2d');
-      let imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      for (let i = 0; i < imgData.data.length; i += 4) {
-        let r = imgData.data[i], g = imgData.data[i+1], b = imgData.data[i+2];
-        let gray = 0.299*r + 0.587*g + 0.114*b;
-        imgData.data[i] = imgData.data[i+1] = imgData.data[i+2] = gray;
-      }
-      let hist = new Array(256).fill(0);
-      for (let i = 0; i < imgData.data.length; i += 4) {
-        let gray = imgData.data[i];
-        hist[Math.round(gray)]++;
-      }
-      let total = canvas.width * canvas.height;
-      let sum = 0;
-      for (let t=0; t<256; t++) sum += t * hist[t];
-      let sumB = 0, wB = 0, wF = 0, varMax = 0, threshold = 0;
-      for (let t=0; t<256; t++) {
-        wB += hist[t];
-        if (!wB) continue;
-        wF = total - wB;
-        if (!wF) break;
-        sumB += t * hist[t];
-        let mB = sumB / wB;
-        let mF = (sum - sumB) / wF;
-        let varBetween = wB * wF * Math.pow(mB - mF, 2);
-        if (varBetween > varMax) {
-          varMax = varBetween;
-          threshold = t;
+    const req = indexedDB.open(CONFIG.DB_NAME, CONFIG.DB_VERSION);
+    req.onupgradeneeded = e=>{
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(CONFIG.STORE_IMAGES))
+        db.createObjectStore(CONFIG.STORE_IMAGES,{keyPath:'id'});
+      if (!db.objectStoreNames.contains(CONFIG.STORE_META))
+        db.createObjectStore(CONFIG.STORE_META,{keyPath:'key'});
+    };
+    req.onsuccess = e=>{ db = e.target.result; res(); };
+    req.onerror = ()=>{ useLocalStorageFallback = true; res(); };
+  });
+}
+function saveToIndexedDB(){
+  if (useLocalStorageFallback) return saveToLocalStorage();
+  if (!db) return;
+  try{
+    const tx = db.transaction([CONFIG.STORE_IMAGES, CONFIG.STORE_META],'readwrite');
+    const sI = tx.objectStore(CONFIG.STORE_IMAGES);
+    const sM = tx.objectStore(CONFIG.STORE_META);
+    sI.clear();
+    images.forEach(o=> sI.put(o));
+    sM.put({key:'order', order: images.map(o=>o.id), ts: Date.now()});
+    tx.oncomplete = ()=> updateStorageInfoEstimate();
+  }catch(e){
+    console.error(e);
+    useLocalStorageFallback = true;
+    saveToLocalStorage();
+  }
+}
+function loadFromIndexedDB(){
+  return new Promise(res=>{
+    if (useLocalStorageFallback || !db){ loadFromLocalStorage(); return res(); }
+    try{
+      const tx = db.transaction([CONFIG.STORE_IMAGES, CONFIG.STORE_META],'readonly');
+      const sI = tx.objectStore(CONFIG.STORE_IMAGES);
+      const sM = tx.objectStore(CONFIG.STORE_META);
+      const orderReq = sM.get('order');
+      const allReq = sI.getAll();
+      tx.oncomplete = ()=>{
+        const order = orderReq.result?.order;
+        let list = allReq.result||[];
+        if (order){
+          const map = new Map(list.map(o=>[o.id,o]));
+          images = order.map(id=>map.get(id)).filter(Boolean);
+          list.forEach(o=>{ if(!order.includes(o.id)) images.push(o); });
+        } else {
+          images = list.sort((a,b)=>(a.ts||0)-(b.ts||0));
         }
-      }
-      for (let i = 0; i < imgData.data.length; i += 4) {
-        let v = imgData.data[i] > threshold ? 255 : 0;
-        imgData.data[i] = imgData.data[i+1] = imgData.data[i+2] = v;
-      }
-      ctx.putImageData(imgData, 0, 0);
-      return canvas;
-    }
+        updatePreview();
+        updateStorageInfoEstimate();
+        res();
+      };
+      tx.onerror = ()=>{ loadFromLocalStorage(); res(); };
+    }catch(e){ loadFromLocalStorage(); res(); }
+  });
+}
+function debounceSave(){
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(()=>{
+    useLocalStorageFallback ? saveToLocalStorage() : saveToIndexedDB();
+  }, CONFIG.SAVE_DEBOUNCE);
+}
+function saveToLocalStorage(){
+  try{
+    localStorage.setItem('doc2pdf_backup_v1', JSON.stringify({images, ts:Date.now()}));
+    updateStorageInfoEstimate();
+  }catch(e){ console.error('localStorage 儲存失敗', e); }
+}
+function loadFromLocalStorage(){
+  try{
+    const raw = localStorage.getItem('doc2pdf_backup_v1');
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (Array.isArray(data.images)){ images = data.images; updatePreview(); updateStorageInfoEstimate(); }
+  }catch(e){ console.warn(e); }
+}
+function clearStorageOnly(){
+  if (useLocalStorageFallback) localStorage.removeItem('doc2pdf_backup_v1');
+  else if (db){
+    const tx = db.transaction([CONFIG.STORE_IMAGES, CONFIG.STORE_META],'readwrite');
+    tx.objectStore(CONFIG.STORE_IMAGES).clear();
+    tx.objectStore(CONFIG.STORE_META).clear();
+  }
+  updateStorageInfoEstimate();
+  alert('已清除暫存（目前畫面圖片仍保留）');
+}
+function clearAllImages(){
+  if (!confirm('確定刪除全部圖片？')) return;
+  images = [];
+  updatePreview();
+  debounceSave();
+}
 
-    // 動態設置 modal-content 的最大高度
-    function setModalContentHeight() {
-      var safeHeight = window.innerHeight - 28;
-      var modalContent = document.querySelector('#cropperModal .modal-content');
-      if (modalContent) {
-        modalContent.style.maxHeight = safeHeight + 'px';
-      }
+/* ==============================
+   圖片處理
+   ============================== */
+function createResizedCanvas(img,maxDim){
+  const r = img.width / img.height;
+  let w=img.width,h=img.height;
+  if (w>h){ if (w>maxDim){ w=maxDim; h=Math.round(w/r);} }
+  else { if (h>maxDim){ h=maxDim; w=Math.round(h*r);} }
+  const c=document.createElement('canvas'); c.width=w; c.height=h;
+  const ctx=c.getContext('2d'); ctx.fillStyle=CONFIG.PREVIEW_BG; ctx.fillRect(0,0,w,h);
+  ctx.drawImage(img,0,0,w,h);
+  return c;
+}
+function applyEffect(canvas,effect){
+  if (effect==='gray'){
+    const ctx=canvas.getContext('2d'); const d=ctx.getImageData(0,0,canvas.width, canvas.height);
+    for (let i=0;i<d.data.length;i+=4){
+      const r=d.data[i],g=d.data[i+1],b=d.data[i+2];
+      const gval=0.299*r+0.587*g+0.114*b;
+      d.data[i]=d.data[i+1]=d.data[i+2]=gval;
     }
+    ctx.putImageData(d,0,0);
+  } else if (effect==='bw'){
+    const ctx=canvas.getContext('2d'); const d=ctx.getImageData(0,0,canvas.width, canvas.height);
+    const hist=new Array(256).fill(0);
+    for (let i=0;i<d.data.length;i+=4){
+      const g=0.299*d.data[i]+0.587*d.data[i+1]+0.114*d.data[i+2];
+      d.data[i]=d.data[i+1]=d.data[i+2]=g; hist[Math.round(g)]++;
+    }
+    let total=canvas.width*canvas.height,sum=0;
+    for (let t=0;t<256;t++) sum+=t*hist[t];
+    let wB=0,sumB=0,varMax=0,th=0;
+    for (let t=0;t<256;t++){
+      wB+=hist[t]; if(!wB)continue;
+      const wF=total-wB; if(!wF)break;
+      sumB+=t*hist[t];
+      const mB=sumB/wB; const mF=(sum-sumB)/wF;
+      const v=wB*wF*(mB-mF)*(mB-mF);
+      if (v>varMax){ varMax=v; th=t; }
+    }
+    for (let i=0;i<d.data.length;i+=4){
+      const v=d.data[i]>th?255:0;
+      d.data[i]=d.data[i+1]=d.data[i+2]=v;
+    }
+    ctx.putImageData(d,0,0);
+  }
+}
+function processCroppedCanvas(croppedCanvas,effect){
+  return new Promise(resolve=>{
+    const temp = new Image();
+    temp.onload = ()=>{
+      const fullCanvas = createResizedCanvas(temp, CONFIG.FULL_MAX_DIM);
+      applyEffect(fullCanvas, effect);
+      const fullDataUrl = fullCanvas.toDataURL('image/jpeg', CONFIG.IMAGE_QUALITY);
+      const previewCanvas = createResizedCanvas(fullCanvas, CONFIG.PREVIEW_MAX_WIDTH);
+      const previewDataUrl = previewCanvas.toDataURL('image/jpeg', 0.75);
+      resolve({
+        fullDataUrl,
+        previewDataUrl,
+        w: fullCanvas.width,
+        h: fullCanvas.height
+      });
+    };
+    temp.src = croppedCanvas.toDataURL('image/jpeg', 0.98);
+  });
+}
 
-    function openCropper(imageSrc, callback) {
-      const modal = document.getElementById('cropperModal');
-      const cropperImg = document.getElementById('cropperImage');
-      cropperImg.src = imageSrc;
-      modal.style.display = 'flex';
+/* ==============================
+   裁切
+   ============================== */
+function openCropper(dataUrl){
+  return new Promise((resolve,reject)=>{
+    const modal=document.getElementById('cropperModal');
+    const imgEl=document.getElementById('cropperImage');
+    modal.style.display='flex';
+    imgEl.src=dataUrl;
+    let instance=null;
+    function cleanup(){
+      if (instance) instance.destroy();
+      modal.style.display='none';
+      window.removeEventListener('resize', setModalContentHeight);
+    }
+    imgEl.onload=()=>{
       setModalContentHeight();
       window.addEventListener('resize', setModalContentHeight);
-      let cropperInstance = null;
-      cropperImg.onload = () => {
-        cropperInstance = new Cropper(cropperImg, {
-          viewMode: 1,
-          aspectRatio: NaN,
-          movable: true,
-          zoomable: true,
-          rotatable: true,
-          scalable: true,
-          autoCropArea: 1,
-          minCropBoxWidth: 50,
-          minCropBoxHeight: 50,
-          dragMode: 'move',
-          toggleDragModeOnDblclick: false
-        });
-        cropper = cropperInstance;
-      };
-      document.getElementById('cropResetBtn').onclick = () => {
-        if (cropperInstance) cropperInstance.reset();
-      };
-      document.getElementById('cropConfirmBtn').onclick = () => {
-        if (!cropperInstance) return;
-        const effect = document.getElementById('effectSelect').value;
-        const croppedCanvas = cropperInstance.getCroppedCanvas();
-        let resultCanvas = document.createElement('canvas');
-        resultCanvas.width = croppedCanvas.width;
-        resultCanvas.height = croppedCanvas.height;
-        resultCanvas.getContext('2d').drawImage(croppedCanvas,0,0);
-        if(effect === "gray") {
-          toGray(resultCanvas);
-        } else if(effect === "bw") {
-          toBW(resultCanvas);
-        }
-        cropperInstance.destroy();
-        modal.style.display = 'none';
-        window.removeEventListener('resize', setModalContentHeight);
-        callback(resultCanvas.toDataURL('image/jpeg', 0.92));
-      };
-      document.getElementById('cropCancelBtn').onclick = () => {
-        if (cropperInstance) cropperInstance.destroy();
-        modal.style.display = 'none';
-        window.removeEventListener('resize', setModalContentHeight);
-      };
-    }
+      instance=new Cropper(imgEl,{
+        viewMode:1, aspectRatio:NaN, movable:true, zoomable:true,
+        rotatable:false, scalable:false, autoCropArea:1,
+        toggleDragModeOnDblclick:false, minCropBoxWidth:50, minCropBoxHeight:50
+      });
+    };
+    document.getElementById('cropResetBtn').onclick=()=> instance && instance.reset();
+    document.getElementById('cropCancelBtn').onclick=()=>{ cleanup(); reject('cancel'); };
+    document.getElementById('cropConfirmBtn').onclick=()=>{
+      if (!instance) return;
+      const effect=document.getElementById('effectSelect').value;
+      const croppedCanvas=instance.getCroppedCanvas();
+      cleanup();
+      resolve({croppedCanvas,effect});
+    };
+  });
+}
+function setModalContentHeight(){
+  const c=document.querySelector('#cropperModal .modal-content');
+  if(!c)return;
+  c.style.maxHeight=(window.innerHeight-30)+'px';
+}
 
-    function handleFiles(files) {
-      if (!files.length) return;
-      document.getElementById('loading').style.display = '';
-      let idx = 0;
-      function next() {
-        if (idx >= files.length) {
-          document.getElementById('loading').style.display = 'none';
-          return;
-        }
-        const file = files[idx];
-        if (!file.type.startsWith('image/')) { idx++; next(); return; }
-        const reader = new FileReader();
-        reader.onload = e => {
-          openCropper(e.target.result, (croppedDataUrl) => {
-            images.push(croppedDataUrl);
-            updatePreview();
-            idx++;
-            next();
-          });
-        };
-        reader.readAsDataURL(file);
+/* ==============================
+   檔案處理
+   ============================== */
+function handleFiles(fileList){
+  if (!fileList.length) return;
+  const loading=document.getElementById('loading');
+  loading.style.display='';
+  let idx=0;
+  function next(){
+    if (idx>=fileList.length){
+      loading.style.display='none'; return;
+    }
+    const f=fileList[idx];
+    if (!f.type.startsWith('image/')){ idx++; next(); return; }
+    const reader=new FileReader();
+    reader.onload=async e=>{
+      try{
+        const {croppedCanvas,effect}=await openCropper(e.target.result);
+        const processed=await processCroppedCanvas(croppedCanvas,effect);
+        images.push({
+          id: uuid(),
+          fullDataUrl: processed.fullDataUrl,
+          previewDataUrl: processed.previewDataUrl,
+          w: processed.w,
+          h: processed.h,
+          ts: Date.now()
+        });
+        updatePreview();
+        debounceSave();
+      }catch(err){ if(err!=='cancel') console.warn(err); }
+      finally { idx++; next(); }
+    };
+    reader.readAsDataURL(f);
+  }
+  next();
+}
+function triggerCamera(){ document.getElementById('cameraInput').click(); }
+function triggerFile(){ document.getElementById('fileInput').click(); }
+document.getElementById('cameraInput').addEventListener('change',e=>{
+  handleFiles(e.target.files); e.target.value='';
+});
+document.getElementById('fileInput').addEventListener('change',e=>{
+  handleFiles(e.target.files); e.target.value='';
+});
+
+/* ==============================
+   預覽 / 排序（↑ ↓）
+   ============================== */
+function updatePreview(){
+  const container=document.getElementById('preview');
+  container.innerHTML='';
+  images.forEach((o,idx)=>{
+    const div=document.createElement('div');
+    div.className='thumb';
+    div.dataset.id=o.id;
+
+    const order=document.createElement('div');
+    order.className='order-label';
+    order.textContent=idx+1;
+    div.appendChild(order);
+
+    const img=document.createElement('img');
+    img.src=o.previewDataUrl;
+    img.alt='第 '+(idx+1)+' 張';
+    img.onerror=()=>{ img.src='icon.png?v=20250811-3'; };
+    div.appendChild(img);
+
+    const del=document.createElement('button');
+    del.className='remove-btn';
+    del.textContent='✖';
+    del.title='刪除';
+    del.onclick=()=>{
+      images = images.filter(x=>x.id!==o.id);
+      updatePreview();
+      debounceSave();
+    };
+    div.appendChild(del);
+
+    const bar=document.createElement('div');
+    bar.className='move-bar';
+
+    const up=document.createElement('button');
+    up.className='move-btn';
+    up.textContent='↑';
+    up.title='上移';
+    up.onclick=(e)=>{
+      e.stopPropagation();
+      if (idx>0){
+        const tmp=images[idx]; images[idx]=images[idx-1]; images[idx-1]=tmp;
+        updatePreview(); debounceSave();
       }
-      next();
-    }
+    };
 
-    document.getElementById('cameraInput').addEventListener('change', e => {
-      handleFiles(e.target.files);
-      e.target.value = '';
-    });
-    document.getElementById('fileInput').addEventListener('change', e => {
-      handleFiles(e.target.files);
-      e.target.value = '';
-    });
-
-    function updatePreview() {
-      const preview = document.getElementById('preview');
-      preview.innerHTML = '';
-      images.forEach((src, i) => {
-        const div = document.createElement('div');
-        div.className = 'preview-item';
-        const img = document.createElement('img');
-        img.src = src;
-        img.onerror = function() { this.src = 'icon.png?v=20250726-1'; };
-        const btn = document.createElement('button');
-        btn.className = 'remove-btn';
-        btn.textContent = '✖';
-        btn.onclick = () => {
-          images.splice(i, 1);
-          updatePreview();
-        };
-        div.appendChild(img);
-        div.appendChild(btn);
-        preview.appendChild(div);
-      });
-    }
-
-    function getPdfFilename() {
-      const now = new Date();
-      const yyyy = now.getFullYear();
-      const mm = String(now.getMonth() + 1).padStart(2, "0");
-      const dd = String(now.getDate()).padStart(2, "0");
-      const hh = String(now.getHours()).padStart(2, "0");
-      const min = String(now.getMinutes()).padStart(2, "0");
-      const ss = String(now.getSeconds()).padStart(2, "0");
-      return `${yyyy}${mm}${dd}_${hh}${min}${ss}_轉檔.pdf`;
-    }
-
-    function generatePDF() {
-      if (images.length === 0) {
-        alert('請先新增照片');
-        return;
+    const down=document.createElement('button');
+    down.className='move-btn';
+    down.textContent='↓';
+    down.title='下移';
+    down.onclick=(e)=>{
+      e.stopPropagation();
+      if (idx<images.length-1){
+        const tmp=images[idx]; images[idx]=images[idx+1]; images[idx+1]=tmp;
+        updatePreview(); debounceSave();
       }
-      const pdf = new jsPDF({ unit: 'pt', format: 'a4' });
-      let addImagePromises = images.map((src, idx) => {
-        return new Promise((resolve) => {
-          const img = new Image();
-          img.onload = () => {
-            let pdfW = pdf.internal.pageSize.getWidth();
-            let pdfH = pdf.internal.pageSize.getHeight();
-            let ratio = Math.min(pdfW / img.width, pdfH / img.height);
-            let w = img.width * ratio, h = img.height * ratio;
-            let x = (pdfW - w) / 2, y = (pdfH - h) / 2;
-            if (idx > 0) pdf.addPage();
-            pdf.addImage(img, 'JPEG', x, y, w, h);
-            resolve();
-          };
-          img.src = src;
-        });
-      });
-      Promise.all(addImagePromises).then(() => {
-        pdf.save(getPdfFilename());
-      });
+    };
+
+    bar.appendChild(up);
+    bar.appendChild(down);
+    div.appendChild(bar);
+
+    container.appendChild(div);
+  });
+  updateStorageInfoEstimate();
+}
+
+/* ==============================
+   PDF
+   ============================== */
+function getPdfFilename(){
+  const d=new Date(), p=n=>String(n).padStart(2,'0');
+  return d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+'_'+
+         p(d.getHours())+p(d.getMinutes())+p(d.getSeconds())+'_轉檔.pdf';
+}
+function generatePDF(){
+  if (!images.length){ alert('請先加入圖片'); return; }
+  const pdf=new jsPDF({unit:'pt',format:'a4',orientation:'portrait'});
+  let first=true;
+  images.forEach(o=>{
+    const isLandscape = o.w > o.h;
+    if (first){
+      pdf.deletePage(1);
+      pdf.addPage('a4', isLandscape?'landscape':'portrait');
+      first=false;
+    } else {
+      pdf.addPage('a4', isLandscape?'landscape':'portrait');
     }
-  </script>
-  <script>
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('service-worker.js?v=20250726-1')
-        .then(function(reg) {
-          // console.log('Service Worker registered.', reg);
-        });
-    }
-  </script>
+    const pdfW=pdf.internal.pageSize.getWidth();
+    const pdfH=pdf.internal.pageSize.getHeight();
+    const ratio=Math.min(pdfW/o.w, pdfH/o.h);
+    const w=o.w*ratio, h=o.h*ratio;
+    const x=(pdfW-w)/2, y=(pdfH-h)/2;
+    pdf.addImage(o.fullDataUrl,'JPEG',x,y,w,h);
+  });
+  pdf.save(getPdfFilename());
+}
+
+/* ==============================
+   儲存估算
+   ============================== */
+function estimateSize(){
+  let total=0;
+  images.forEach(o=>{
+    total += (o.fullDataUrl?.length||0) + (o.previewDataUrl?.length||0);
+  });
+  return Math.round(total * 0.75);
+}
+function updateStorageInfoEstimate(){
+  const el=document.getElementById('storageInfo');
+  const bytes=estimateSize();
+  const kb=(bytes/1024).toFixed(1);
+  const mb=(bytes/1024/1024).toFixed(2);
+  el.textContent=`圖片數：${images.length} 估計佔用：${kb} KB (${mb} MB) 儲存方式：${useLocalStorageFallback?'localStorage':'IndexedDB'}（排序已永遠啟用，使用 ↑ ↓ 調整）`;
+}
+
+/* ==============================
+   初始化
+   ============================== */
+window.addEventListener('DOMContentLoaded', async ()=>{
+  if (isLineBrowser()){
+    document.getElementById('lineWarningModal').style.display='flex';
+    document.getElementById('openInBrowserBtn').onclick=openExternalBrowser;
+  }
+  await openDB();
+  await loadFromIndexedDB();
+  updatePreview();
+});
+if ('serviceWorker' in navigator){
+  navigator.serviceWorker.register('service-worker.js?v=20250811-3').catch(()=>{});
+}
+</script>
 </body>
 </html>
