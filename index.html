@@ -1,602 +1,830 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1.0">
-  <title>文件拍照轉 PDF（手動裁切＋多種效果）</title>
-  <link rel="manifest" href="manifest.json?v=20250811-1">
-  <link rel="icon" href="icon.png?v=20250811-1" type="image/png">
-  <link href="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.css" rel="stylesheet"/>
-  <style>
-    body { font-family: Arial, sans-serif; margin: 2em; background: #fff; }
-    h2 { margin-top:0; }
-    .preview { display: flex; flex-wrap: wrap; gap: 10px; margin: 1em 0; }
-    .preview-item {
-      position: relative;
-      cursor: grab;
-      border: 2px solid transparent;
-      border-radius:6px;
-    }
-    .preview-item.dragging { opacity: .4; }
-    .preview-item.drag-over { border-color:#1976d2; }
-    .preview-item img { width: 120px; height: auto; border: 1px solid #aaa; border-radius: 4px; display:block; }
-    .remove-btn {
-      position: absolute; top: 2px; right: 2px;
-      background: rgba(255,0,0,0.85); color: #fff; border: none; border-radius: 3px;
-      cursor: pointer; font-size: 12px; padding: 2px 6px;
-    }
-    .actions {
-      margin-bottom: 1em;
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 0.5em;
-    }
-    .actions input[type="file"] { display:none; }
-    .actions button {
-      flex: 0 0 auto;
-      font-size: 0.95em;
-      border: none;
-      background: #f5f5f5;
-      color: #333;
-      padding: 0.65em 1.05em;
-      border-radius: 6px;
-      cursor:pointer;
-    }
-    .actions button:hover, .actions button:focus { background:#e0e0e0; }
-    #loading { display:none; color:#006; font-weight:bold; }
-    #localInfo { font-size:0.75em; color:#666; }
-    #cropperModal {
-      display:none;
-      position:fixed;
-      inset:0;
-      width:100vw; height:100vh;
-      background:rgba(0,0,0,0.8);
-      align-items:center;
-      justify-content:center;
-      z-index:9999;
-      overscroll-behavior: contain;
-    }
-    #cropperModal .modal-content {
-      background:#fff;
-      padding:1em 0.5em;
-      border-radius:10px;
-      max-width:95vw;
-      max-height:80vh;
-      text-align:center;
-      overflow-y:auto;
-      display:flex;
-      flex-direction:column;
-      align-items:center;
-    }
-    #cropperTip {
-      font-size:0.95em;
-      color:#555;
-      margin:.4em 0 .6em;
-      font-weight:bold;
-      line-height:1.4;
-    }
-    #cropperImage {
-      max-width:82vw;
-      max-height:28vh;
-      margin-bottom:0.5em;
-      touch-action:none;
-      border:1px solid #eee;
-      background:#fafafa;
-      border-radius:4px;
-      box-sizing:border-box;
-      display:block;
-    }
-    .cropper-point {
-      width:30px !important;
-      height:30px !important;
-      background-color:#2196F3 !important;
-      opacity:0.8 !important;
-      border-radius:50% !important;
-    }
-    #effectSelect {
-      font-size:1em;
-      margin:0 1em;
-      padding:0.35em 0.8em;
-      border-radius:5px;
-      border:1px solid #b0b0b0;
-      background:#fafafa;
-      color:#333;
-    }
-    #cropperBtns {
-      min-height:55px;
-      margin-top:1.1em;
-      display:flex;
-      gap:1em;
-      flex-wrap:wrap;
-      justify-content:center;
-      width:100%;
-    }
-    #cropperBtns button {
-      min-width:90px;
-      font-size:0.95em;
-      padding:0.63em 1.05em;
-      background:#f5f5f5;
-      color:#333;
-      border-radius:6px;
-      border:none;
-      cursor:pointer;
-    }
-    #cropperBtns button:hover { background:#e0e0e0; }
-    @media (max-width:500px) {
-      #cropperModal .modal-content { padding:0.6em 0.2em 0.9em; }
-      #cropperImage { max-width:98vw; max-height:24vh; }
-      #cropperBtns button { font-size:0.9em; min-width:70px; padding:0.5em 0.7em; }
-      .actions { gap:0.35em; }
-    }
-
-    /* 小提示條 */
-    #hintBar {
-      font-size:0.75em;
-      background:#fafafa;
-      border:1px solid #e3e3e3;
-      padding:0.5em 0.8em;
-      border-radius:6px;
-      color:#444;
-      line-height:1.4;
-      max-width:640px;
-    }
-
-    /* LINE 警告彈窗 */
-    #lineWarningModal { font-size:0.95em; }
-  </style>
-  <script src="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>文件拍照轉 PDF（裁切/濾鏡/自動橫直向/拖曳排序/暫存）</title>
+<link rel="manifest" href="manifest.json?v=20250811-2">
+<link rel="icon" href="icon.png?v=20250811-2" type="image/png">
+<link href="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.css" rel="stylesheet"/>
+<style>
+  body { font-family: Arial, "Noto Sans TC", sans-serif; margin: 1.4em; background:#fff; }
+  h2 { margin-top:0; }
+  .actions { display:flex; flex-wrap:wrap; gap:.55em; align-items:center; margin-bottom:.6em; }
+  .actions input[type=file]{ display:none; }
+  .actions button {
+    background:#f5f5f5; border:none; padding:.62em 1.05em; font-size:.9em;
+    border-radius:6px; cursor:pointer; line-height:1; letter-spacing:.5px;
+  }
+  .actions button:hover { background:#e6e6e6; }
+  button.danger { background:#ffecec; color:#b80000; }
+  button.danger:hover { background:#ffd5d5; }
+  button.alt { background:#eef6ff; color:#0d5fae; }
+  button.alt:hover { background:#d7ebff; }
+  #loading { display:none; font-size:.85em; color:#004; font-weight:bold; }
+  #infoBar {
+    font-size:.72em; background:#fafafa; padding:.6em .8em; border:1px solid #e3e3e3;
+    border-radius:6px; line-height:1.5; margin-bottom:.8em; max-width:860px;
+  }
+  #storageInfo { font-size:.7em; color:#666; margin:.3em 0 .8em; }
+  #preview {
+    display:flex; flex-wrap:wrap; gap:10px; margin-top:.8em;
+  }
+  .thumb {
+    position:relative; width:128px; border:2px solid transparent; border-radius:8px;
+    background:#fafafa; padding:4px 4px 26px; box-sizing:border-box;
+    user-select:none; -webkit-user-select:none;
+    transition:border-color .15s, box-shadow .15s;
+  }
+  .thumb.reorder-active { cursor:grab; }
+  .thumb.dragging { opacity:.35; box-shadow:0 0 0 3px #1976d2 inset; }
+  .thumb.drag-over { border-color:#1976d2; }
+  .thumb img {
+    width:100%; height:auto; display:block; border:1px solid #bbb; border-radius:5px;
+    background:#fff; object-fit:contain;
+  }
+  .remove-btn {
+    position:absolute; top:4px; right:4px; background:rgba(255,0,0,.85);
+    color:#fff; border:none; border-radius:4px; font-size:11px;
+    padding:2px 6px; cursor:pointer;
+  }
+  .order-label {
+    position:absolute; top:4px; left:4px;
+    background:#1976d2; color:#fff; font-size:11px;
+    padding:2px 6px; border-radius:4px; font-weight:bold;
+    opacity:.9; display:none;
+  }
+  .reorder-active .order-label { display:inline-block; }
+  .drag-handle {
+    position:absolute; bottom:2px; left:4px; right:4px;
+    display:flex; justify-content:space-between; align-items:center;
+    gap:4px; opacity:0; transition:opacity .2s;
+  }
+  .reorder-active .drag-handle { opacity:1; }
+  .drag-grip {
+    flex:1 1 auto;
+    background:#e0e7ef; color:#2d5d86; border:1px solid #c0d2e2;
+    font-size:11px; padding:4px 4px; text-align:center; border-radius:4px;
+    cursor:grab; user-select:none;
+  }
+  .move-btn {
+    background:#f2f2f2; border:1px solid #ccc; font-size:11px; padding:4px 6px;
+    border-radius:4px; cursor:pointer;
+  }
+  .move-btn:hover { background:#e5e5e5; }
+  #lineWarningModal {
+    font-size:.95em;
+  }
+  #cropperModal {
+    position:fixed; inset:0; background:rgba(0,0,0,.78);
+    display:none; align-items:center; justify-content:center; z-index:9999;
+    overscroll-behavior:contain;
+  }
+  #cropperModal .modal-content {
+    background:#fff; padding:1em .6em; border-radius:12px;
+    max-width:95vw; max-height:82vh; overflow:auto;
+    text-align:center; display:flex; flex-direction:column; align-items:center;
+  }
+  #cropperTip { font-size:.85em; color:#555; line-height:1.4; font-weight:bold; }
+  #cropperImage {
+    max-width:82vw; max-height:28vh; margin:.55em 0 .4em;
+    background:#fafafa; border:1px solid #eee; border-radius:6px;
+    touch-action:none;
+  }
+  #effectSelect {
+    font-size:.9em; padding:.35em .7em; border:1px solid #bbb; border-radius:6px; background:#fafafa;
+  }
+  #cropperBtns { margin-top:.9em; display:flex; flex-wrap:wrap; gap:.6em; }
+  #cropperBtns button {
+    background:#f5f5f5; border:none; border-radius:6px; padding:.55em .9em;
+    font-size:.85em; cursor:pointer;
+  }
+  #cropperBtns button:hover { background:#e4e4e4; }
+  .cropper-point {
+    width:30px !important; height:30px !important; background:#1976d2 !important;
+    opacity:.85 !important; border-radius:50% !important;
+  }
+  @media (max-width:560px) {
+    .thumb { width:30vw; max-width:150px; }
+    #cropperImage { max-width:96vw; max-height:24vh; }
+    #infoBar { font-size:.78em; }
+    .actions button { font-size:.82em; padding:.58em .85em; }
+  }
+</style>
+<script src="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 </head>
 <body>
-  <!-- LINE瀏覽器警告彈窗 -->
-  <div id="lineWarningModal" style="display:none;position:fixed;z-index:99999;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.7);align-items:center;justify-content:center;">
-    <div style="background:#fff;padding:2em 1em;border-radius:12px;max-width:90vw;text-align:center;box-shadow:0 6px 24px #0002;">
-      <h3 style="color:#1976d2;margin-top:0;">⚠️ 提示</h3>
-      <div style="font-size:1.05em;color:#444;margin:1em 0 1.4em;font-weight:bold;">
-        建議使用預設瀏覽器（Safari / Chrome），<br>LINE 內建瀏覽器可能功能不完整。
-      </div>
-      <button id="openInBrowserBtn" style="font-size:0.95em;padding:0.7em 1.4em;border-radius:8px;border:none;background:#1976d2;color:#fff;box-shadow:0 2px 8px #0001;cursor:pointer;">
-        用預設瀏覽器開啟本頁
-      </button>
-      <br><br>
-      <button onclick="document.getElementById('lineWarningModal').style.display='none'" style="color:#1976d2;background:#fff;border:1px solid #1976d2;padding:0.45em 1.1em;border-radius:7px;font-size:0.85em;cursor:pointer;">
-        關閉
-      </button>
+<!-- LINE 瀏覽器提示 -->
+<div id="lineWarningModal" style="display:none;position:fixed;z-index:99999;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.7);align-items:center;justify-content:center;">
+  <div style="background:#fff;padding:1.8em 1.2em;border-radius:14px;max-width:90vw;text-align:center;box-shadow:0 6px 24px #0002;">
+    <h3 style="color:#1976d2;margin-top:0;font-size:1.1em;">⚠️ 提示</h3>
+    <div style="font-size:.95em;color:#444;margin:1em 0 1.2em;font-weight:bold;">
+      建議使用預設瀏覽器（Safari/Chrome）開啟；LINE 內建瀏覽器功能可能受限。
+    </div>
+    <button id="openInBrowserBtn" style="font-size:.85em;padding:.65em 1.2em;border-radius:8px;border:none;background:#1976d2;color:#fff;cursor:pointer;">用預設瀏覽器開啟本頁</button>
+    <br><br>
+    <button onclick="document.getElementById('lineWarningModal').style.display='none'" style="color:#1976d2;background:#fff;border:1px solid #1976d2;padding:.45em 1.1em;border-radius:7px;font-size:.8em;cursor:pointer;">關閉</button>
+  </div>
+</div>
+
+<h2>📄 文件拍照轉 PDF</h2>
+<div id="infoBar">
+  功能：裁切＋濾鏡 / 自動橫直向 PDF / 拖曳排序（行動裝置支援）/ 自動暫存（IndexedDB）/ 圖片壓縮與縮圖分離。<br>
+  操作：新增圖片→逐張裁切→（可開啟排序模式拖曳調整順序）→ 產生 PDF。<br>
+  提示：若圖片很多、容量過大，可適度刪除或分批匯出；可自行調整下方 CONFIG。
+</div>
+
+<div class="actions">
+  <input type="file" accept="image/*" capture="environment" id="cameraInput">
+  <input type="file" accept="image/*" multiple id="fileInput">
+  <button onclick="triggerCamera()">📷 拍照</button>
+  <button onclick="triggerFile()">🖼️ 選照片</button>
+  <button onclick="toggleReorderMode()" id="reorderBtn">🔀 排序模式 開啟</button>
+  <button onclick="generatePDF()">🧾 產生 PDF</button>
+  <button class="danger" onclick="clearAllImages()">🗑️ 清除全部</button>
+  <button class="alt" onclick="clearStorageOnly()">🧹 清除暫存</button>
+  <button class="alt" onclick="exportOrder()">📤 匯出順序(JSON)</button>
+  <span id="loading">處理中...</span>
+</div>
+
+<div id="storageInfo">載入中…</div>
+<div id="preview"></div>
+
+<!-- 裁切 Modal -->
+<div id="cropperModal">
+  <div class="modal-content">
+    <div id="cropperTip">單指拖移、雙指縮放、調整裁切範圍<br><span style="color:#1976d2;">如偏移請點「重設」</span></div>
+    <img id="cropperImage" alt="待裁切">
+    <div>
+      <label for="effectSelect">效果：</label>
+      <select id="effectSelect">
+        <option value="original">原色</option>
+        <option value="gray">灰階</option>
+        <option value="bw">黑白（高對比）</option>
+      </select>
+    </div>
+    <div id="cropperBtns">
+      <button id="cropResetBtn" type="button">重設</button>
+      <button id="cropConfirmBtn" type="button">確定裁切</button>
+      <button id="cropCancelBtn" type="button">取消</button>
     </div>
   </div>
+</div>
 
-  <h2>📄 文件拍照轉 PDF（手動裁切＋多種效果）</h2>
+<script>
+/* ==============================
+   CONFIG 可調參數
+   ============================== */
+const CONFIG = {
+  FULL_MAX_DIM: 2000,       // 壓縮後原圖最大長邊
+  PREVIEW_MAX_WIDTH: 420,   // 縮圖最大寬
+  PREVIEW_BG: '#ffffff',    // 縮圖填充背景（避免透明）
+  IMAGE_QUALITY: 0.9,       // JPEG 輸出品質
+  DB_NAME: 'doc2pdf_db_v1',
+  DB_VERSION: 1,
+  STORE_IMAGES: 'images',
+  STORE_META: 'meta',
+  SAVE_DEBOUNCE: 500
+};
 
-  <div id="hintBar">
-    功能：1) 裁切＋濾鏡 2) 自動判斷 PDF 橫/直向 3) 拖曳縮圖調整順序 4) 自動暫存（重新整理不會消失）<br>
-    提示：拖曳縮圖改順序；大量圖片可能超出瀏覽器 localStorage（約 5MB）。
-  </div>
+/* ==============================
+   狀態/全域變數
+   ============================== */
+let images = []; // {id, fullDataUrl, previewDataUrl, w, h, ts}
+let isReorderMode = false;
+let cropper = null;
+const { jsPDF } = window.jspdf;
 
-  <div class="actions" style="margin-top:0.9em;">
-    <input type="file" accept="image/*" capture="environment" id="cameraInput">
-    <input type="file" accept="image/*" multiple id="fileInput">
-    <button onclick="document.getElementById('cameraInput').click()">📷 拍照</button>
-    <button onclick="document.getElementById('fileInput').click()">🖼️ 選照片</button>
-    <button onclick="generatePDF()">🧾 產生 PDF</button>
-    <button onclick="clearAllImages()" style="background:#ffecec;color:#b80000;">🗑️ 清除全部</button>
-    <button onclick="clearLocalOnly()" style="background:#f2f8ff;color:#0b64c0;">🧹 清除暫存</button>
-    <span id="loading">處理中...</span>
-  </div>
-  <div id="localInfo"></div>
-  <div class="preview" id="preview"></div>
+let db = null;
+let pendingSave = false;
+let saveTimer = null;
+let useLocalStorageFallback = false;
 
-  <!-- 裁切 Modal -->
-  <div id="cropperModal">
-    <div class="modal-content">
-      <div id="cropperTip">
-        單指拖曳移動、雙指縮放、點圓點調整裁切<br>
-        <span style="color:#1976d2;">如偏移請用「重設」</span>
-      </div>
-      <img id="cropperImage" alt="待裁切圖片">
-      <div style="margin-top:0.6em;">
-        <label for="effectSelect">效果：</label>
-        <select id="effectSelect">
-          <option value="original">原色</option>
-          <option value="gray">灰階</option>
-          <option value="bw">黑白（強化對比）</option>
-        </select>
-      </div>
-      <div id="cropperBtns">
-        <button id="cropResetBtn" type="button">重設</button>
-        <button id="cropConfirmBtn" type="button">確定裁切</button>
-        <button id="cropCancelBtn" type="button">取消</button>
-      </div>
-    </div>
-  </div>
+/* ==============================
+   實用函式
+   ============================== */
+function uuid() {
+  return 'xxxxxxxx'.replace(/[x]/g, () => (Math.random()*16|0).toString(16)) + Date.now().toString(16);
+}
 
-  <script>
-    /********************
-     * LINE 瀏覽器判斷 *
-     ********************/
-    function isLineBrowser() {
-      return navigator.userAgent.toLowerCase().indexOf('line') !== -1;
+function log(...a){ console.log('[doc2pdf]', ...a); }
+
+function isLineBrowser(){
+  return navigator.userAgent.toLowerCase().includes('line');
+}
+
+function openExternalBrowser() {
+  const url = location.href.split('#')[0];
+  if (/android/i.test(navigator.userAgent)) {
+    const intentUrl = 'intent://' + url.replace(/^https?:\/\//,'') + '#Intent;scheme=https;package=com.android.chrome;end';
+    location.href = intentUrl;
+  } else {
+    window.open(url, '_blank');
+  }
+}
+
+/* ==============================
+   IndexedDB 初始化
+   ============================== */
+function openDB(){
+  return new Promise((resolve, reject)=>{
+    if (!('indexedDB' in window)){
+      log('IndexedDB 不支援，改用 localStorage');
+      useLocalStorageFallback = true;
+      return resolve(null);
     }
-    function getCurrentUrl() {
-      return window.location.href.split('#')[0];
-    }
-    function openInBrowser() {
-      const url = getCurrentUrl();
-      if (/android/i.test(navigator.userAgent)) {
-        const intentUrl = 'intent://' + url.replace(/^https?:\/\//,'') + '#Intent;scheme=https;package=com.android.chrome;end';
-        window.location = intentUrl;
-      } else if (/iphone|ipad|ipod/i.test(navigator.userAgent)) {
-        window.open(url, '_blank');
-      } else {
-        window.open(url, '_blank');
+    const req = indexedDB.open(CONFIG.DB_NAME, CONFIG.DB_VERSION);
+    req.onupgradeneeded = e=>{
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains(CONFIG.STORE_IMAGES)) {
+        db.createObjectStore(CONFIG.STORE_IMAGES, { keyPath: 'id' });
       }
-    }
-
-    /********************
-     * 全域資料與常數   *
-     ********************/
-    const { jsPDF } = window.jspdf;
-    let images = [];                 // 只存 DataURL
-    let cropper = null;
-    const LS_KEY = 'doc2pdf_images_v1';
-    const SAVE_DEBOUNCE = 400;
-    let saveTimer = null;
-
-    /********************
-     * 濾鏡處理函式     *
-     ********************/
-    function toGray(canvas) {
-      const ctx = canvas.getContext('2d');
-      let d = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      for (let i=0; i<d.data.length; i+=4) {
-        const r=d.data[i], g=d.data[i+1], b=d.data[i+2];
-        const gray = 0.299*r + 0.587*g + 0.114*b;
-        d.data[i]=d.data[i+1]=d.data[i+2]=gray;
+      if (!db.objectStoreNames.contains(CONFIG.STORE_META)) {
+        db.createObjectStore(CONFIG.STORE_META, { keyPath: 'key' });
       }
-      ctx.putImageData(d,0,0);
-      return canvas;
+    };
+    req.onsuccess = e=>{
+      db = e.target.result;
+      resolve(db);
+    };
+    req.onerror = e=>{
+      console.error('DB 開啟失敗', e);
+      useLocalStorageFallback = true;
+      resolve(null);
+    };
+  });
+}
+
+function saveToIndexedDB(){
+  if (useLocalStorageFallback) return saveToLocalStorage();
+  if (!db) return;
+  try{
+    const tx = db.transaction([CONFIG.STORE_IMAGES, CONFIG.STORE_META], 'readwrite');
+    const storeI = tx.objectStore(CONFIG.STORE_IMAGES);
+    const storeM = tx.objectStore(CONFIG.STORE_META);
+    // 先清空 (簡化實作；若圖片很多可改成 diff 更新)
+    storeI.clear();
+    images.forEach(obj => storeI.put(obj));
+    storeM.put({ key:'order', order: images.map(o=>o.id), ts: Date.now() });
+    tx.oncomplete = ()=>{ updateStorageInfoEstimate(); };
+    tx.onerror = e=>{ console.error('寫入失敗', e); };
+  }catch(err){
+    console.error(err);
+    alert('IndexedDB 寫入失敗，改用 localStorage。');
+    useLocalStorageFallback = true;
+    saveToLocalStorage();
+  }
+}
+
+function loadFromIndexedDB(){
+  return new Promise(resolve=>{
+    if (useLocalStorageFallback || !db){
+      loadFromLocalStorage();
+      return resolve();
     }
-    function toBW(canvas) {
-      const ctx = canvas.getContext('2d');
-      let d = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const hist = new Array(256).fill(0);
-      for (let i=0; i<d.data.length; i+=4) {
-        const r=d.data[i], g=d.data[i+1], b=d.data[i+2];
-        const gray = 0.299*r + 0.587*g + 0.114*b;
-        d.data[i]=d.data[i+1]=d.data[i+2]=gray;
-        hist[Math.round(gray)]++;
-      }
-      // Otsu
-      let total = canvas.width * canvas.height;
-      let sum=0;
-      for (let t=0; t<256; t++) sum += t * hist[t];
-      let sumB=0, wB=0, wF=0, varMax=0, threshold=0;
-      for (let t=0; t<256; t++) {
-        wB += hist[t];
-        if (!wB) continue;
-        wF = total - wB;
-        if (!wF) break;
-        sumB += t * hist[t];
-        const mB = sumB / wB;
-        const mF = (sum - sumB) / wF;
-        const varBetween = wB * wF * (mB - mF) * (mB - mF);
-        if (varBetween > varMax) {
-          varMax = varBetween;
-            threshold = t;
+    try{
+      const tx = db.transaction([CONFIG.STORE_IMAGES, CONFIG.STORE_META], 'readonly');
+      const storeI = tx.objectStore(CONFIG.STORE_IMAGES);
+      const storeM = tx.objectStore(CONFIG.STORE_META);
+
+      const orderReq = storeM.get('order');
+      const imagesReq = storeI.getAll();
+      tx.oncomplete = ()=>{
+        const orderData = orderReq.result;
+        const imgs = imagesReq.result;
+        if (Array.isArray(imgs) && imgs.length){
+          if (orderData && Array.isArray(orderData.order)){
+            // 按 order 排序
+            const map = new Map(imgs.map(o=>[o.id,o]));
+            images = orderData.order.map(id=>map.get(id)).filter(Boolean);
+            // 餘下未列入順序的追加
+            imgs.forEach(o => { if (!orderData.order.includes(o.id)) images.push(o); });
+          } else {
+            images = imgs.sort((a,b)=> (a.ts||0)-(b.ts||0));
+          }
         }
-      }
-      for (let i=0; i<d.data.length; i+=4) {
-        const v = d.data[i] > threshold ? 255 : 0;
-        d.data[i]=d.data[i+1]=d.data[i+2]=v;
-      }
-      ctx.putImageData(d,0,0);
-      return canvas;
+        updatePreview();
+        updateStorageInfoEstimate();
+        resolve();
+      };
+      tx.onerror = e=>{
+        console.warn('讀取 DB 失敗', e);
+        loadFromLocalStorage();
+        resolve();
+      };
+    }catch(e){
+      console.error(e);
+      loadFromLocalStorage();
+      resolve();
     }
+  });
+}
 
-    /********************
-     * 自動暫存功能     *
-     ********************/
-    function saveStateDebounced() {
-      clearTimeout(saveTimer);
-      saveTimer = setTimeout(saveState, SAVE_DEBOUNCE);
-    }
-    function saveState() {
-      try {
-        const payload = {
-          images,
-          ts: Date.now()
-        };
-        localStorage.setItem(LS_KEY, JSON.stringify(payload));
-        updateLocalInfo();
-      } catch (e) {
-        console.error('儲存失敗：', e);
-        alert('圖片暫存超出瀏覽器限制，無法再保存。\n建議：刪除部分圖片或立即匯出 PDF。');
-      }
-    }
-    function loadState() {
-      try {
-        const raw = localStorage.getItem(LS_KEY);
-        if (!raw) return;
-        const data = JSON.parse(raw);
-        if (Array.isArray(data.images)) {
-          images = data.images;
-          updatePreview();
-        }
-        updateLocalInfo();
-      } catch(e) {
-        console.warn('讀取暫存失敗', e);
-      }
-    }
-    function clearLocalOnly() {
-      localStorage.removeItem(LS_KEY);
-      updateLocalInfo();
-      alert('已清除瀏覽器暫存（不影響目前畫面圖片）。');
-    }
-    function clearAllImages() {
-      if (!confirm('確定清除全部圖片？（此操作無法復原）')) return;
-      images = [];
+function debounceSave(){
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(()=>{
+    if (useLocalStorageFallback) saveToLocalStorage();
+    else saveToIndexedDB();
+  }, CONFIG.SAVE_DEBOUNCE);
+}
+
+function saveToLocalStorage(){
+  try {
+    const payload = { images, ts: Date.now() };
+    localStorage.setItem('doc2pdf_backup_v1', JSON.stringify(payload));
+    updateStorageInfoEstimate();
+  } catch(e){
+    console.error('localStorage 儲存失敗', e);
+  }
+}
+
+function loadFromLocalStorage(){
+  try{
+    const raw = localStorage.getItem('doc2pdf_backup_v1');
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (data && Array.isArray(data.images)){
+      images = data.images;
       updatePreview();
-      saveState();
+      updateStorageInfoEstimate();
     }
-    function updateLocalInfo() {
-      const infoEl = document.getElementById('localInfo');
-      const raw = localStorage.getItem(LS_KEY);
-      if (!raw) {
-        infoEl.textContent = '暫存：無';
-        return;
-      }
-      // 粗估大小 (字串長度)
-      const bytes = new Blob([raw]).size;
-      const kb = (bytes/1024).toFixed(1);
-      const mb = (bytes/1024/1024).toFixed(2);
-      infoEl.textContent = `暫存：${images.length} 張，約 ${kb} KB (${mb} MB)`;
-    }
+  } catch(e){
+    console.warn('讀取 localStorage 失敗', e);
+  }
+}
 
-    /********************
-     * 裁切 Modal 高度   *
-     ********************/
-    function setModalContentHeight() {
-      const safeHeight = window.innerHeight - 28;
-      const modalContent = document.querySelector('#cropperModal .modal-content');
-      if (modalContent) modalContent.style.maxHeight = safeHeight + 'px';
-    }
+function clearStorageOnly(){
+  if (useLocalStorageFallback){
+    localStorage.removeItem('doc2pdf_backup_v1');
+  } else if (db){
+    const tx = db.transaction([CONFIG.STORE_IMAGES, CONFIG.STORE_META],'readwrite');
+    tx.objectStore(CONFIG.STORE_IMAGES).clear();
+    tx.objectStore(CONFIG.STORE_META).clear();
+  }
+  updateStorageInfoEstimate();
+  alert('已清除暫存（目前畫面圖片仍保留）');
+}
 
-    /********************
-     * 開啟裁切          *
-     ********************/
-    function openCropper(imageSrc, callback) {
-      const modal = document.getElementById('cropperModal');
-      const cropperImg = document.getElementById('cropperImage');
-      cropperImg.src = imageSrc;
-      modal.style.display = 'flex';
+function clearAllImages(){
+  if (!confirm('確定要刪除所有圖片？')) return;
+  images = [];
+  updatePreview();
+  debounceSave();
+}
+
+function exportOrder(){
+  const order = images.map(o=>o.id);
+  const blob = new Blob([JSON.stringify({ order, count: order.length, time: new Date().toISOString() }, null, 2)], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'image_order.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+/* ==============================
+   圖片壓縮與縮圖製作
+   ============================== */
+function createResizedCanvas(img, maxDim){
+  const r = img.width / img.height;
+  let w = img.width, h = img.height;
+  if (w > h){
+    if (w > maxDim){ w = maxDim; h = Math.round(w / r); }
+  } else {
+    if (h > maxDim){ h = maxDim; w = Math.round(h * r); }
+  }
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = CONFIG.PREVIEW_BG;
+  ctx.fillRect(0,0,w,h);
+  ctx.drawImage(img,0,0,w,h);
+  return c;
+}
+
+function applyEffect(canvas, effect){
+  if (effect === 'gray'){
+    const ctx = canvas.getContext('2d');
+    const d = ctx.getImageData(0,0,canvas.width, canvas.height);
+    for (let i=0;i<d.data.length;i+=4){
+      const r=d.data[i], g=d.data[i+1], b=d.data[i+2];
+      const gray = 0.299*r + 0.587*g + 0.114*b;
+      d.data[i]=d.data[i+1]=d.data[i+2]=gray;
+    }
+    ctx.putImageData(d,0,0);
+  } else if (effect === 'bw'){
+    const ctx = canvas.getContext('2d');
+    const d = ctx.getImageData(0,0,canvas.width, canvas.height);
+    const hist = new Array(256).fill(0);
+    for (let i=0;i<d.data.length;i+=4){
+      const gray = 0.299*d.data[i] + 0.587*d.data[i+1] + 0.114*d.data[i+2];
+      d.data[i]=d.data[i+1]=d.data[i+2]=gray;
+      hist[Math.round(gray)]++;
+    }
+    let total = canvas.width * canvas.height;
+    let sum=0; for (let t=0;t<256;t++) sum += t*hist[t];
+    let wB=0, sumB=0, varMax=0, threshold=0;
+    for (let t=0;t<256;t++){
+      wB += hist[t]; if (!wB) continue;
+      const wF = total - wB; if (!wF) break;
+      sumB += t*hist[t];
+      const mB = sumB / wB;
+      const mF = (sum - sumB) / wF;
+      const varBetween = wB*wF*(mB-mF)*(mB-mF);
+      if (varBetween > varMax){ varMax=varBetween; threshold=t; }
+    }
+    for (let i=0;i<d.data.length;i+=4){
+      const v = d.data[i] > threshold ? 255 : 0;
+      d.data[i]=d.data[i+1]=d.data[i+2]=v;
+    }
+    ctx.putImageData(d,0,0);
+  }
+}
+
+function processCroppedCanvas(croppedCanvas, effect){
+  // 建原圖（壓縮）
+  const tempImg = new Image();
+  return new Promise(resolve=>{
+    tempImg.onload = ()=>{
+      // 生成原圖壓縮
+      const fullCanvas = createResizedCanvas(tempImg, CONFIG.FULL_MAX_DIM);
+      // 對 fullCanvas 套濾鏡（先套在 full，再生成 preview），也可改先套濾鏡後縮圖
+      applyEffect(fullCanvas, effect);
+      const fullDataUrl = fullCanvas.toDataURL('image/jpeg', CONFIG.IMAGE_QUALITY);
+      // 生成縮圖
+      const previewCanvas = createResizedCanvas(fullCanvas, CONFIG.PREVIEW_MAX_WIDTH);
+      const previewDataUrl = previewCanvas.toDataURL('image/jpeg', 0.75);
+      resolve({
+        fullDataUrl,
+        previewDataUrl,
+        w: fullCanvas.width,
+        h: fullCanvas.height
+      });
+    };
+    tempImg.src = croppedCanvas.toDataURL('image/jpeg', 0.98);
+  });
+}
+
+/* ==============================
+   裁切流程
+   ============================== */
+function openCropper(dataUrl){
+  return new Promise((resolve, reject)=>{
+    const modal = document.getElementById('cropperModal');
+    const imgEl = document.getElementById('cropperImage');
+    modal.style.display='flex';
+    imgEl.src = dataUrl;
+    let instance = null;
+    function cleanup(){
+      if (instance) instance.destroy();
+      modal.style.display='none';
+      window.removeEventListener('resize', setModalContentHeight);
+    }
+    imgEl.onload = ()=>{
       setModalContentHeight();
       window.addEventListener('resize', setModalContentHeight);
-      let cropperInstance = null;
-      cropperImg.onload = () => {
-        cropperInstance = new Cropper(cropperImg, {
-          viewMode: 1,
-            aspectRatio: NaN,
-            movable: true,
-            zoomable: true,
-            rotatable: true,
-            scalable: true,
-            autoCropArea: 1,
-            minCropBoxWidth: 50,
-            minCropBoxHeight: 50,
-            dragMode: 'move',
-            toggleDragModeOnDblclick: false
+      instance = new Cropper(imgEl, {
+        viewMode:1,
+        aspectRatio: NaN,
+        movable:true,
+        zoomable:true,
+        rotatable:false,
+        scalable:false,
+        autoCropArea:1,
+        toggleDragModeOnDblclick:false,
+        minCropBoxWidth:50,
+        minCropBoxHeight:50
+      });
+    };
+    document.getElementById('cropResetBtn').onclick = ()=> instance && instance.reset();
+    document.getElementById('cropCancelBtn').onclick = ()=>{ cleanup(); reject('cancel'); };
+    document.getElementById('cropConfirmBtn').onclick = ()=>{
+      if (!instance) return;
+      const effect = document.getElementById('effectSelect').value;
+      const croppedCanvas = instance.getCroppedCanvas();
+      cleanup();
+      resolve({ croppedCanvas, effect });
+    };
+  });
+}
+
+function setModalContentHeight(){
+  const content = document.querySelector('#cropperModal .modal-content');
+  if (!content) return;
+  const safe = window.innerHeight - 30;
+  content.style.maxHeight = safe + 'px';
+}
+
+/* ==============================
+   檔案處理
+   ============================== */
+function handleFiles(fileList){
+  if (!fileList.length) return;
+  const loading = document.getElementById('loading');
+  loading.style.display='';
+  let idx = 0;
+  function next(){
+    if (idx >= fileList.length){
+      loading.style.display='none';
+      return;
+    }
+    const f = fileList[idx];
+    if (!f.type.startsWith('image/')) { idx++; next(); return; }
+    const reader = new FileReader();
+    reader.onload = async e=>{
+      try {
+        const step1 = await openCropper(e.target.result);
+        const processed = await processCroppedCanvas(step1.croppedCanvas, step1.effect);
+        images.push({
+          id: uuid(),
+          fullDataUrl: processed.fullDataUrl,
+          previewDataUrl: processed.previewDataUrl,
+          w: processed.w,
+          h: processed.h,
+          ts: Date.now()
         });
-        cropper = cropperInstance;
-      };
-      document.getElementById('cropResetBtn').onclick = () => {
-        if (cropperInstance) cropperInstance.reset();
-      };
-      document.getElementById('cropConfirmBtn').onclick = () => {
-        if (!cropperInstance) return;
-        const effect = document.getElementById('effectSelect').value;
-        const croppedCanvas = cropperInstance.getCroppedCanvas();
-        const resultCanvas = document.createElement('canvas');
-        resultCanvas.width = croppedCanvas.width;
-        resultCanvas.height = croppedCanvas.height;
-        resultCanvas.getContext('2d').drawImage(croppedCanvas,0,0);
-        if (effect === 'gray') toGray(resultCanvas);
-        else if (effect === 'bw') toBW(resultCanvas);
-        cropperInstance.destroy();
-        modal.style.display = 'none';
-        window.removeEventListener('resize', setModalContentHeight);
-        callback(resultCanvas.toDataURL('image/jpeg', 0.92));
-      };
-      document.getElementById('cropCancelBtn').onclick = () => {
-        if (cropperInstance) cropperInstance.destroy();
-        modal.style.display = 'none';
-        window.removeEventListener('resize', setModalContentHeight);
-      };
-    }
-
-    /********************
-     * 處理檔案          *
-     ********************/
-    function handleFiles(fileList) {
-      if (!fileList.length) return;
-      document.getElementById('loading').style.display = '';
-      let idx = 0;
-      function next() {
-        if (idx >= fileList.length) {
-          document.getElementById('loading').style.display = 'none';
-          return;
-        }
-        const file = fileList[idx];
-        if (!file.type.startsWith('image/')) { idx++; next(); return; }
-        const reader = new FileReader();
-        reader.onload = e => {
-          openCropper(e.target.result, croppedDataUrl => {
-            images.push(croppedDataUrl);
-            updatePreview();
-            saveStateDebounced();
-            idx++;
-            next();
-          });
-        };
-        reader.readAsDataURL(file);
+        updatePreview();
+        debounceSave();
+      } catch(err){
+        if (err !== 'cancel') console.warn(err);
+      } finally {
+        idx++; next();
       }
-      next();
-    }
+    };
+    reader.readAsDataURL(f);
+  }
+  next();
+}
 
-    document.getElementById('cameraInput').addEventListener('change', e => {
-      handleFiles(e.target.files);
-      e.target.value = '';
-    });
-    document.getElementById('fileInput').addEventListener('change', e => {
-      handleFiles(e.target.files);
-      e.target.value = '';
-    });
+function triggerCamera(){ document.getElementById('cameraInput').click(); }
+function triggerFile(){ document.getElementById('fileInput').click(); }
 
-    /********************
-     * 預覽與拖曳排序    *
-     ********************/
-    function updatePreview() {
-      const preview = document.getElementById('preview');
-      preview.innerHTML = '';
-      images.forEach((src, i) => {
-        const div = document.createElement('div');
-        div.className = 'preview-item';
-        div.draggable = true;
-        div.dataset.index = i;
+document.getElementById('cameraInput').addEventListener('change', e=>{
+  handleFiles(e.target.files);
+  e.target.value='';
+});
+document.getElementById('fileInput').addEventListener('change', e=>{
+  handleFiles(e.target.files);
+  e.target.value='';
+});
 
-        const img = document.createElement('img');
-        img.src = src;
-        img.alt = '第 ' + (i+1) + ' 張圖片';
-        img.onerror = function(){ this.src='icon.png?v=20250811-1'; };
+/* ==============================
+   預覽 / 排序
+   ============================== */
+function updatePreview(){
+  const container = document.getElementById('preview');
+  container.innerHTML='';
+  images.forEach((obj, idx)=>{
+    const div = document.createElement('div');
+    div.className = 'thumb' + (isReorderMode ? ' reorder-active':'');
+    div.dataset.id = obj.id;
 
-        const btn = document.createElement('button');
-        btn.className = 'remove-btn';
-        btn.textContent = '✖';
-        btn.title = '刪除這張';
-        btn.onclick = () => {
-          images.splice(i,1);
-          updatePreview();
-          saveStateDebounced();
-        };
+    const orderLabel = document.createElement('div');
+    orderLabel.className = 'order-label';
+    orderLabel.textContent = idx+1;
+    div.appendChild(orderLabel);
 
-        // Drag events
-        div.addEventListener('dragstart', dragStart);
-        div.addEventListener('dragover', dragOver);
-        div.addEventListener('dragleave', dragLeave);
-        div.addEventListener('drop', dragDrop);
-        div.addEventListener('dragend', dragEnd);
+    const img = document.createElement('img');
+    img.src = obj.previewDataUrl;
+    img.alt = '第 '+(idx+1)+' 張';
+    img.onerror = ()=>{ img.src='icon.png?v=20250811-2'; };
+    div.appendChild(img);
 
-        div.appendChild(img);
-        div.appendChild(btn);
-        preview.appendChild(div);
-      });
-      updateLocalInfo();
-    }
-
-    let dragSrcIndex = null;
-
-    function dragStart(e) {
-      dragSrcIndex = +this.dataset.index;
-      this.classList.add('dragging');
-      e.dataTransfer.effectAllowed = 'move';
-      try { e.dataTransfer.setData('text/plain', dragSrcIndex); } catch(_) {}
-    }
-    function dragOver(e) {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
-      if (!this.classList.contains('drag-over')) this.classList.add('drag-over');
-    }
-    function dragLeave() {
-      this.classList.remove('drag-over');
-    }
-    function dragDrop(e) {
-      e.preventDefault();
-      this.classList.remove('drag-over');
-      const targetIndex = +this.dataset.index;
-      if (dragSrcIndex === null || targetIndex === dragSrcIndex) return;
-      // 重新排序
-      const moved = images.splice(dragSrcIndex, 1)[0];
-      images.splice(targetIndex, 0, moved);
+    const delBtn = document.createElement('button');
+    delBtn.className='remove-btn';
+    delBtn.textContent='✖';
+    delBtn.title='刪除';
+    delBtn.onclick = ()=>{
+      images = images.filter(o=>o.id!==obj.id);
       updatePreview();
-      saveStateDebounced();
-    }
-    function dragEnd() {
-      const items = document.querySelectorAll('.preview-item');
-      items.forEach(it => it.classList.remove('dragging','drag-over'));
-      dragSrcIndex = null;
-    }
+      debounceSave();
+    };
+    div.appendChild(delBtn);
 
-    /********************
-     * 產生 PDF (橫直)  *
-     ********************/
-    function getPdfFilename() {
-      const now = new Date();
-      const yyyy = now.getFullYear();
-      const mm = String(now.getMonth()+1).padStart(2,'0');
-      const dd = String(now.getDate()).padStart(2,'0');
-      const hh = String(now.getHours()).padStart(2,'0');
-      const min = String(now.getMinutes()).padStart(2,'0');
-      const ss = String(now.getSeconds()).padStart(2,'0');
-      return `${yyyy}${mm}${dd}_${hh}${min}${ss}_轉檔.pdf`;
-    }
+    const handleBar = document.createElement('div');
+    handleBar.className='drag-handle';
 
-    function generatePDF() {
-      if (images.length === 0) {
-        alert('請先新增或裁切完成圖片');
-        return;
+    const grip = document.createElement('div');
+    grip.className='drag-grip';
+    grip.textContent='拖曳';
+    grip.title='長按並拖曳以排序';
+
+    // 備援按鈕
+    const upBtn = document.createElement('button');
+    upBtn.className='move-btn';
+    upBtn.textContent='↑';
+    upBtn.title='上移';
+    upBtn.onclick = (e)=>{
+      e.stopPropagation();
+      if (idx>0){
+        const tmp = images[idx];
+        images[idx] = images[idx-1];
+        images[idx-1] = tmp;
+        updatePreview();
+        debounceSave();
       }
-      // 預先載入所有圖片 (確保知道寬高)
-      const pdfImages = [];
-      let loaded = 0;
-      images.forEach((src, idx) => {
-        const img = new Image();
-        img.onload = function() {
-          pdfImages[idx] = img;
-          loaded++;
-          if (loaded === images.length) buildPDF(pdfImages);
-        };
-        img.src = src;
-      });
-    }
-
-    function buildPDF(pdfImages) {
-      let pdf = null;
-      pdfImages.forEach((img, idx) => {
-        const landscape = img.width > img.height;
-        const orientation = landscape ? 'landscape' : 'portrait';
-        if (idx === 0) {
-          pdf = new jsPDF({ unit:'pt', format:'a4', orientation });
-        } else {
-          pdf.addPage('a4', orientation);
-        }
-        const pdfW = pdf.internal.pageSize.getWidth();
-        const pdfH = pdf.internal.pageSize.getHeight();
-        const ratio = Math.min(pdfW / img.width, pdfH / img.height);
-        const w = img.width * ratio;
-        const h = img.height * ratio;
-        const x = (pdfW - w)/2;
-        const y = (pdfH - h)/2;
-        pdf.addImage(img, 'JPEG', x, y, w, h);
-      });
-      pdf.save(getPdfFilename());
-    }
-
-    /********************
-     * 初始化            *
-     ********************/
-    window.addEventListener('DOMContentLoaded', () => {
-      if (isLineBrowser()) {
-        document.getElementById('lineWarningModal').style.display='flex';
-        document.getElementById('openInBrowserBtn').onclick = openInBrowser;
+    };
+    const downBtn = document.createElement('button');
+    downBtn.className='move-btn';
+    downBtn.textContent='↓';
+    downBtn.title='下移';
+    downBtn.onclick = (e)=>{
+      e.stopPropagation();
+      if (idx < images.length-1){
+        const tmp = images[idx];
+        images[idx] = images[idx+1];
+        images[idx+1] = tmp;
+        updatePreview();
+        debounceSave();
       }
-      loadState();
-    });
+    };
 
-    /********************
-     * Service Worker    *
-     ********************/
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('service-worker.js?v=20250811-1').catch(()=>{});
+    handleBar.appendChild(grip);
+    handleBar.appendChild(upBtn);
+    handleBar.appendChild(downBtn);
+    div.appendChild(handleBar);
+
+    // Pointer-based 拖曳 (支援行動裝置)
+    setupPointerDrag(div, grip);
+
+    container.appendChild(div);
+  });
+  updateStorageInfoEstimate();
+}
+
+function toggleReorderMode(){
+  isReorderMode = !isReorderMode;
+  document.getElementById('reorderBtn').textContent = isReorderMode ? '✅ 排序模式 中 (點我關)' : '🔀 排序模式 開啟';
+  updatePreview();
+}
+
+/* 自訂 pointer 拖曳邏輯 */
+let dragState = null;
+function setupPointerDrag(containerEl, handleEl){
+  handleEl.addEventListener('pointerdown', e=>{
+    if (!isReorderMode) return;
+    e.preventDefault();
+    const id = containerEl.dataset.id;
+    dragState = {
+      id,
+      startX: e.clientX,
+      startY: e.clientY,
+      origIndex: images.findIndex(o=>o.id===id),
+      ghost: null,
+      placeholder: null
+    };
+    containerEl.classList.add('dragging');
+    document.addEventListener('pointermove', onPointerMove);
+    document.addEventListener('pointerup', onPointerUp);
+  }, {passive:false});
+}
+
+function onPointerMove(e){
+  if (!dragState) return;
+  e.preventDefault();
+  const preview = document.getElementById('preview');
+  if (!dragState.ghost){
+    // 建立浮動影像
+    const srcEl = [...preview.children].find(ch=>ch.dataset.id===dragState.id);
+    const rect = srcEl.getBoundingClientRect();
+    const ghost = srcEl.cloneNode(true);
+    ghost.style.position='fixed';
+    ghost.style.pointerEvents='none';
+    ghost.style.left=rect.left+'px';
+    ghost.style.top=rect.top+'px';
+    ghost.style.width=rect.width+'px';
+    ghost.style.zIndex=10000;
+    ghost.style.opacity='0.55';
+    ghost.classList.add('dragging');
+    document.body.appendChild(ghost);
+    dragState.ghost = ghost;
+  }
+  dragState.ghost.style.left = (e.clientX - 60)+'px';
+  dragState.ghost.style.top  = (e.clientY - 40)+'px';
+
+  // 找目前指向的縮圖
+  const elems = [...preview.children];
+  for (const el of elems){
+    el.classList.remove('drag-over');
+  }
+  const over = elems.find(el=>{
+    const r = el.getBoundingClientRect();
+    return e.clientX>=r.left && e.clientX<=r.right && e.clientY>=r.top && e.clientY<=r.bottom;
+  });
+  if (over && over.dataset.id !== dragState.id){
+    over.classList.add('drag-over');
+  }
+}
+
+function onPointerUp(e){
+  if (!dragState) return;
+  const preview = document.getElementById('preview');
+  const elems = [...preview.children];
+  let targetIndex = null;
+  const over = elems.find(el=> el.classList.contains('drag-over'));
+  if (over) {
+    targetIndex = images.findIndex(o=>o.id===over.dataset.id);
+  }
+  // 清除狀態
+  elems.forEach(el=>el.classList.remove('drag-over','dragging'));
+  if (dragState.ghost) dragState.ghost.remove();
+
+  if (targetIndex !== null && targetIndex !== dragState.origIndex && targetIndex !== -1){
+    const origIndex = dragState.origIndex;
+    const moved = images.splice(origIndex,1)[0];
+    images.splice(targetIndex,0,moved);
+    updatePreview();
+    debounceSave();
+  } else {
+    // 回復 preview 畫面
+    updatePreview();
+  }
+
+  dragState = null;
+  document.removeEventListener('pointermove', onPointerMove);
+  document.removeEventListener('pointerup', onPointerUp);
+}
+
+/* ==============================
+   PDF 產生
+   ============================== */
+function getPdfFilename(){
+  const d = new Date();
+  const pad = n => String(n).padStart(2,'0');
+  return d.getFullYear()+pad(d.getMonth()+1)+pad(d.getDate())+'_'+
+         pad(d.getHours())+pad(d.getMinutes())+pad(d.getSeconds())+'_轉檔.pdf';
+}
+
+function generatePDF(){
+  if (!images.length){
+    alert('請先加入圖片');
+    return;
+  }
+  const pdf = new jsPDF({ unit:'pt', format:'a4', orientation: 'portrait' });
+  let first = true;
+  images.forEach((obj, idx)=>{
+    const img = new Image();
+    img.src = obj.fullDataUrl;
+    // 同步使用 (因為 DataURL)
+    const isLandscape = obj.w > obj.h;
+    if (first){
+      // 重建第一頁方向
+      pdf.deletePage(1);
+      pdf.addPage('a4', isLandscape ? 'landscape' : 'portrait');
+      first=false;
+    } else {
+      pdf.addPage('a4', isLandscape ? 'landscape' : 'portrait');
     }
-  </script>
+    const pdfW = pdf.internal.pageSize.getWidth();
+    const pdfH = pdf.internal.pageSize.getHeight();
+    const ratio = Math.min(pdfW / obj.w, pdfH / obj.h);
+    const w = obj.w * ratio;
+    const h = obj.h * ratio;
+    const x = (pdfW - w)/2;
+    const y = (pdfH - h)/2;
+    pdf.addImage(obj.fullDataUrl, 'JPEG', x, y, w, h);
+  });
+  pdf.save(getPdfFilename());
+}
+
+/* ==============================
+   儲存資訊估算
+   ============================== */
+function estimateSize(){
+  // 粗估：DataURL 長度 * 0.75 bytes
+  let total = 0;
+  images.forEach(o=>{
+    total += (o.fullDataUrl?.length||0) + (o.previewDataUrl?.length||0);
+  });
+  return Math.round(total * 0.75);
+}
+
+function updateStorageInfoEstimate(){
+  const el = document.getElementById('storageInfo');
+  const bytes = estimateSize();
+  const kb = (bytes/1024).toFixed(1);
+  const mb = (bytes/1024/1024).toFixed(2);
+  el.textContent = `圖片數：${images.length} 估計佔用：${kb} KB (${mb} MB) 儲存方式：${useLocalStorageFallback?'localStorage':'IndexedDB'}`;
+}
+
+/* ==============================
+   初始化
+   ============================== */
+window.addEventListener('DOMContentLoaded', async ()=>{
+  if (isLineBrowser()){
+    document.getElementById('lineWarningModal').style.display='flex';
+    document.getElementById('openInBrowserBtn').onclick = openExternalBrowser;
+  }
+  await openDB();
+  await loadFromIndexedDB();
+  updatePreview();
+});
+
+if ('serviceWorker' in navigator){
+  navigator.serviceWorker.register('service-worker.js?v=20250811-2').catch(()=>{});
+}
+
+</script>
 </body>
 </html>
