@@ -4,17 +4,25 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
   <title>文件拍照轉 PDF（手動裁切＋多種效果）</title>
-  <link rel="manifest" href="manifest.json?v=20250726-11">
-  <link rel="icon" href="icon.png?v=20250726-11" type="image/png">
+  <link rel="manifest" href="manifest.json?v=20250811-1">
+  <link rel="icon" href="icon.png?v=20250811-1" type="image/png">
   <link href="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.css" rel="stylesheet"/>
   <style>
     body { font-family: Arial, sans-serif; margin: 2em; background: #fff; }
+    h2 { margin-top:0; }
     .preview { display: flex; flex-wrap: wrap; gap: 10px; margin: 1em 0; }
-    .preview-item { position: relative; }
-    .preview-item img { width: 120px; border: 1px solid #aaa; border-radius: 4px; }
+    .preview-item {
+      position: relative;
+      cursor: grab;
+      border: 2px solid transparent;
+      border-radius:6px;
+    }
+    .preview-item.dragging { opacity: .4; }
+    .preview-item.drag-over { border-color:#1976d2; }
+    .preview-item img { width: 120px; height: auto; border: 1px solid #aaa; border-radius: 4px; display:block; }
     .remove-btn {
       position: absolute; top: 2px; right: 2px;
-      background: rgba(255,0,0,0.8); color: #fff; border: none; border-radius: 3px;
+      background: rgba(255,0,0,0.85); color: #fff; border: none; border-radius: 3px;
       cursor: pointer; font-size: 12px; padding: 2px 6px;
     }
     .actions {
@@ -24,32 +32,25 @@
       align-items: center;
       gap: 0.5em;
     }
-    .actions input[type="file"] {
-      display: none;
-    }
+    .actions input[type="file"] { display:none; }
     .actions button {
       flex: 0 0 auto;
-      font-size: 1em;
-      margin-right: 0;
+      font-size: 0.95em;
       border: none;
       background: #f5f5f5;
       color: #333;
-      padding: 0.7em 1.2em;
+      padding: 0.65em 1.05em;
       border-radius: 6px;
+      cursor:pointer;
     }
-    .actions button:hover, .actions button:focus { background: #e0e0e0; color: #222; }
-    #loading {
-      display:none;
-      color: #009;
-      font-weight: bold;
-      margin-left: 1em;
-    }
+    .actions button:hover, .actions button:focus { background:#e0e0e0; }
+    #loading { display:none; color:#006; font-weight:bold; }
+    #localInfo { font-size:0.75em; color:#666; }
     #cropperModal {
       display:none;
       position:fixed;
-      top:0; left:0;
-      width:100vw;
-      height:100vh;
+      inset:0;
+      width:100vw; height:100vh;
       background:rgba(0,0,0,0.8);
       align-items:center;
       justify-content:center;
@@ -57,79 +58,92 @@
       overscroll-behavior: contain;
     }
     #cropperModal .modal-content {
-      background: #fff;
-      padding: 1em 0.5em;
-      border-radius: 10px;
-      max-width: 95vw;
-      max-height: 80vh;
-      text-align: center;
-      overflow-y: auto;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
+      background:#fff;
+      padding:1em 0.5em;
+      border-radius:10px;
+      max-width:95vw;
+      max-height:80vh;
+      text-align:center;
+      overflow-y:auto;
+      display:flex;
+      flex-direction:column;
+      align-items:center;
     }
     #cropperTip {
-      font-size: 1em;
-      color: #555;
-      margin-bottom: .5em;
-      margin-top: .5em;
-      font-weight: bold;
+      font-size:0.95em;
+      color:#555;
+      margin:.4em 0 .6em;
+      font-weight:bold;
+      line-height:1.4;
     }
     #cropperImage {
-      max-width: 82vw;
-      max-height: 28vh;
-      margin-bottom: 0.5em;
-      touch-action: none;
-      border: 1px solid #eee;
-      background: #fafafa;
-      border-radius: 4px;
-      box-sizing: border-box;
+      max-width:82vw;
+      max-height:28vh;
+      margin-bottom:0.5em;
+      touch-action:none;
+      border:1px solid #eee;
+      background:#fafafa;
+      border-radius:4px;
+      box-sizing:border-box;
+      display:block;
     }
     .cropper-point {
-      width: 30px !important;
-      height: 30px !important;
-      background-color: #2196F3 !important;
-      opacity: 0.8 !important;
-      border-radius: 50% !important;
+      width:30px !important;
+      height:30px !important;
+      background-color:#2196F3 !important;
+      opacity:0.8 !important;
+      border-radius:50% !important;
     }
     #effectSelect {
-      font-size: 1em;
-      margin: 0 1em;
-      padding: 0.3em 0.8em;
-      border-radius: 5px;
-      border: 1px solid #b0b0b0;
-      background: #fafafa;
-      color: #333;
+      font-size:1em;
+      margin:0 1em;
+      padding:0.35em 0.8em;
+      border-radius:5px;
+      border:1px solid #b0b0b0;
+      background:#fafafa;
+      color:#333;
     }
     #cropperBtns {
-      min-height: 55px;
-      margin-top: 1.2em;
-      display: flex;
-      gap: 1em;
-      flex-wrap: wrap;
-      justify-content: center;
-      width: 100%;
+      min-height:55px;
+      margin-top:1.1em;
+      display:flex;
+      gap:1em;
+      flex-wrap:wrap;
+      justify-content:center;
+      width:100%;
     }
     #cropperBtns button {
-      min-width: 90px;
-      font-size: 1em;
-      padding: 0.7em 1.1em;
-      background: #f5f5f5;
-      color: #333;
-      border-radius: 6px;
-      border: none;
-      margin: 0 2px;
+      min-width:90px;
+      font-size:0.95em;
+      padding:0.63em 1.05em;
+      background:#f5f5f5;
+      color:#333;
+      border-radius:6px;
+      border:none;
+      cursor:pointer;
     }
-    #cropperBtns button:hover, #cropperBtns button:focus {
-      background: #e0e0e0;
-      color: #222;
+    #cropperBtns button:hover { background:#e0e0e0; }
+    @media (max-width:500px) {
+      #cropperModal .modal-content { padding:0.6em 0.2em 0.9em; }
+      #cropperImage { max-width:98vw; max-height:24vh; }
+      #cropperBtns button { font-size:0.9em; min-width:70px; padding:0.5em 0.7em; }
+      .actions { gap:0.35em; }
     }
-    @media (max-width: 500px) {
-      #cropperModal .modal-content { padding: 0.5em 0.2em 0.7em 0.2em; }
-      #cropperImage { max-width: 98vw; max-height: 24vh; }
-      #cropperBtns button { font-size: 0.97em; min-width: 70px; padding: 0.5em 0.7em; }
-      .actions { gap: 0.3em; }
+
+    /* 小提示條 */
+    #hintBar {
+      font-size:0.75em;
+      background:#fafafa;
+      border:1px solid #e3e3e3;
+      padding:0.5em 0.8em;
+      border-radius:6px;
+      color:#444;
+      line-height:1.4;
+      max-width:640px;
     }
+
+    /* LINE 警告彈窗 */
+    #lineWarningModal { font-size:0.95em; }
   </style>
   <script src="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
@@ -138,38 +152,49 @@
   <!-- LINE瀏覽器警告彈窗 -->
   <div id="lineWarningModal" style="display:none;position:fixed;z-index:99999;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.7);align-items:center;justify-content:center;">
     <div style="background:#fff;padding:2em 1em;border-radius:12px;max-width:90vw;text-align:center;box-shadow:0 6px 24px #0002;">
-      <h3 style="color:#1976d2;">⚠️ 提示</h3>
-      <div style="font-size:1.18em;color:#444;margin:1em 0 1.8em 0;font-weight:bold;">
-        建議使用預設瀏覽器（Safari/Chrome），<br>LINE瀏覽器部分功能可能異常。
+      <h3 style="color:#1976d2;margin-top:0;">⚠️ 提示</h3>
+      <div style="font-size:1.05em;color:#444;margin:1em 0 1.4em;font-weight:bold;">
+        建議使用預設瀏覽器（Safari / Chrome），<br>LINE 內建瀏覽器可能功能不完整。
       </div>
-      <button id="openInBrowserBtn" style="font-size:1em;padding:0.8em 1.5em;border-radius:8px;border:none;background:#1976d2;color:#fff;box-shadow:0 2px 8px #0001;cursor:pointer;">
+      <button id="openInBrowserBtn" style="font-size:0.95em;padding:0.7em 1.4em;border-radius:8px;border:none;background:#1976d2;color:#fff;box-shadow:0 2px 8px #0001;cursor:pointer;">
         用預設瀏覽器開啟本頁
       </button>
       <br><br>
-      <button onclick="document.getElementById('lineWarningModal').style.display='none'" style="color:#1976d2;background:#fff;border:1px solid #1976d2;padding:0.4em 1em;border-radius:7px;font-size:0.98em;box-shadow:none;cursor:pointer;">
+      <button onclick="document.getElementById('lineWarningModal').style.display='none'" style="color:#1976d2;background:#fff;border:1px solid #1976d2;padding:0.45em 1.1em;border-radius:7px;font-size:0.85em;cursor:pointer;">
         關閉
       </button>
     </div>
   </div>
+
   <h2>📄 文件拍照轉 PDF（手動裁切＋多種效果）</h2>
-  <div class="actions">
+
+  <div id="hintBar">
+    功能：1) 裁切＋濾鏡 2) 自動判斷 PDF 橫/直向 3) 拖曳縮圖調整順序 4) 自動暫存（重新整理不會消失）<br>
+    提示：拖曳縮圖改順序；大量圖片可能超出瀏覽器 localStorage（約 5MB）。
+  </div>
+
+  <div class="actions" style="margin-top:0.9em;">
     <input type="file" accept="image/*" capture="environment" id="cameraInput">
     <input type="file" accept="image/*" multiple id="fileInput">
     <button onclick="document.getElementById('cameraInput').click()">📷 拍照</button>
     <button onclick="document.getElementById('fileInput').click()">🖼️ 選照片</button>
     <button onclick="generatePDF()">🧾 產生 PDF</button>
-    <span id="loading">圖片處理中，請稍候...</span>
+    <button onclick="clearAllImages()" style="background:#ffecec;color:#b80000;">🗑️ 清除全部</button>
+    <button onclick="clearLocalOnly()" style="background:#f2f8ff;color:#0b64c0;">🧹 清除暫存</button>
+    <span id="loading">處理中...</span>
   </div>
+  <div id="localInfo"></div>
   <div class="preview" id="preview"></div>
 
+  <!-- 裁切 Modal -->
   <div id="cropperModal">
     <div class="modal-content">
       <div id="cropperTip">
-        單指拖曳移動、雙指縮放、點選圓點調整裁切範圍<br>
-        <span style="color: #1976d2;">如偏移請用「重設」回正</span>
+        單指拖曳移動、雙指縮放、點圓點調整裁切<br>
+        <span style="color:#1976d2;">如偏移請用「重設」</span>
       </div>
-      <img id="cropperImage">
-      <div style="margin-top:1em;">
+      <img id="cropperImage" alt="待裁切圖片">
+      <div style="margin-top:0.6em;">
         <label for="effectSelect">效果：</label>
         <select id="effectSelect">
           <option value="original">原色</option>
@@ -186,7 +211,9 @@
   </div>
 
   <script>
-    // LINE瀏覽器判斷與跳轉
+    /********************
+     * LINE 瀏覽器判斷 *
+     ********************/
     function isLineBrowser() {
       return navigator.userAgent.toLowerCase().indexOf('line') !== -1;
     }
@@ -194,90 +221,149 @@
       return window.location.href.split('#')[0];
     }
     function openInBrowser() {
-      var url = getCurrentUrl();
-      // Android: intent 跳 Chrome
+      const url = getCurrentUrl();
       if (/android/i.test(navigator.userAgent)) {
-        var intentUrl = 'intent://' + url.replace(/^https?:\/\//, '') +
-          '#Intent;scheme=https;package=com.android.chrome;end';
+        const intentUrl = 'intent://' + url.replace(/^https?:\/\//,'') + '#Intent;scheme=https;package=com.android.chrome;end';
         window.location = intentUrl;
       } else if (/iphone|ipad|ipod/i.test(navigator.userAgent)) {
-        // iOS: 開新分頁（其實還是LINE內建，但用戶可以手動從分享選單開Safari）
         window.open(url, '_blank');
       } else {
-        // 其他平台，直接跳新分頁
         window.open(url, '_blank');
       }
     }
-    window.addEventListener('DOMContentLoaded', function() {
-      if (isLineBrowser()) {
-        document.getElementById('lineWarningModal').style.display = 'flex';
-        var btn = document.getElementById('openInBrowserBtn');
-        btn.onclick = openInBrowser;
-      }
-    });
 
+    /********************
+     * 全域資料與常數   *
+     ********************/
     const { jsPDF } = window.jspdf;
-    let images = [];
+    let images = [];                 // 只存 DataURL
     let cropper = null;
+    const LS_KEY = 'doc2pdf_images_v1';
+    const SAVE_DEBOUNCE = 400;
+    let saveTimer = null;
 
+    /********************
+     * 濾鏡處理函式     *
+     ********************/
     function toGray(canvas) {
       const ctx = canvas.getContext('2d');
-      let imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      for (let i = 0; i < imgData.data.length; i += 4) {
-        let r = imgData.data[i], g = imgData.data[i+1], b = imgData.data[i+2];
-        let gray = 0.299*r + 0.587*g + 0.114*b;
-        imgData.data[i] = imgData.data[i+1] = imgData.data[i+2] = gray;
+      let d = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      for (let i=0; i<d.data.length; i+=4) {
+        const r=d.data[i], g=d.data[i+1], b=d.data[i+2];
+        const gray = 0.299*r + 0.587*g + 0.114*b;
+        d.data[i]=d.data[i+1]=d.data[i+2]=gray;
       }
-      ctx.putImageData(imgData, 0, 0);
+      ctx.putImageData(d,0,0);
       return canvas;
     }
     function toBW(canvas) {
       const ctx = canvas.getContext('2d');
-      let imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      for (let i = 0; i < imgData.data.length; i += 4) {
-        let r = imgData.data[i], g = imgData.data[i+1], b = imgData.data[i+2];
-        let gray = 0.299*r + 0.587*g + 0.114*b;
-        imgData.data[i] = imgData.data[i+1] = imgData.data[i+2] = gray;
-      }
-      let hist = new Array(256).fill(0);
-      for (let i = 0; i < imgData.data.length; i += 4) {
-        let gray = imgData.data[i];
+      let d = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const hist = new Array(256).fill(0);
+      for (let i=0; i<d.data.length; i+=4) {
+        const r=d.data[i], g=d.data[i+1], b=d.data[i+2];
+        const gray = 0.299*r + 0.587*g + 0.114*b;
+        d.data[i]=d.data[i+1]=d.data[i+2]=gray;
         hist[Math.round(gray)]++;
       }
+      // Otsu
       let total = canvas.width * canvas.height;
-      let sum = 0;
+      let sum=0;
       for (let t=0; t<256; t++) sum += t * hist[t];
-      let sumB = 0, wB = 0, wF = 0, varMax = 0, threshold = 0;
+      let sumB=0, wB=0, wF=0, varMax=0, threshold=0;
       for (let t=0; t<256; t++) {
         wB += hist[t];
         if (!wB) continue;
         wF = total - wB;
         if (!wF) break;
         sumB += t * hist[t];
-        let mB = sumB / wB;
-        let mF = (sum - sumB) / wF;
-        let varBetween = wB * wF * Math.pow(mB - mF, 2);
+        const mB = sumB / wB;
+        const mF = (sum - sumB) / wF;
+        const varBetween = wB * wF * (mB - mF) * (mB - mF);
         if (varBetween > varMax) {
           varMax = varBetween;
-          threshold = t;
+            threshold = t;
         }
       }
-      for (let i = 0; i < imgData.data.length; i += 4) {
-        let v = imgData.data[i] > threshold ? 255 : 0;
-        imgData.data[i] = imgData.data[i+1] = imgData.data[i+2] = v;
+      for (let i=0; i<d.data.length; i+=4) {
+        const v = d.data[i] > threshold ? 255 : 0;
+        d.data[i]=d.data[i+1]=d.data[i+2]=v;
       }
-      ctx.putImageData(imgData, 0, 0);
+      ctx.putImageData(d,0,0);
       return canvas;
     }
 
-    function setModalContentHeight() {
-      var safeHeight = window.innerHeight - 28;
-      var modalContent = document.querySelector('#cropperModal .modal-content');
-      if (modalContent) {
-        modalContent.style.maxHeight = safeHeight + 'px';
+    /********************
+     * 自動暫存功能     *
+     ********************/
+    function saveStateDebounced() {
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(saveState, SAVE_DEBOUNCE);
+    }
+    function saveState() {
+      try {
+        const payload = {
+          images,
+          ts: Date.now()
+        };
+        localStorage.setItem(LS_KEY, JSON.stringify(payload));
+        updateLocalInfo();
+      } catch (e) {
+        console.error('儲存失敗：', e);
+        alert('圖片暫存超出瀏覽器限制，無法再保存。\n建議：刪除部分圖片或立即匯出 PDF。');
       }
     }
+    function loadState() {
+      try {
+        const raw = localStorage.getItem(LS_KEY);
+        if (!raw) return;
+        const data = JSON.parse(raw);
+        if (Array.isArray(data.images)) {
+          images = data.images;
+          updatePreview();
+        }
+        updateLocalInfo();
+      } catch(e) {
+        console.warn('讀取暫存失敗', e);
+      }
+    }
+    function clearLocalOnly() {
+      localStorage.removeItem(LS_KEY);
+      updateLocalInfo();
+      alert('已清除瀏覽器暫存（不影響目前畫面圖片）。');
+    }
+    function clearAllImages() {
+      if (!confirm('確定清除全部圖片？（此操作無法復原）')) return;
+      images = [];
+      updatePreview();
+      saveState();
+    }
+    function updateLocalInfo() {
+      const infoEl = document.getElementById('localInfo');
+      const raw = localStorage.getItem(LS_KEY);
+      if (!raw) {
+        infoEl.textContent = '暫存：無';
+        return;
+      }
+      // 粗估大小 (字串長度)
+      const bytes = new Blob([raw]).size;
+      const kb = (bytes/1024).toFixed(1);
+      const mb = (bytes/1024/1024).toFixed(2);
+      infoEl.textContent = `暫存：${images.length} 張，約 ${kb} KB (${mb} MB)`;
+    }
 
+    /********************
+     * 裁切 Modal 高度   *
+     ********************/
+    function setModalContentHeight() {
+      const safeHeight = window.innerHeight - 28;
+      const modalContent = document.querySelector('#cropperModal .modal-content');
+      if (modalContent) modalContent.style.maxHeight = safeHeight + 'px';
+    }
+
+    /********************
+     * 開啟裁切          *
+     ********************/
     function openCropper(imageSrc, callback) {
       const modal = document.getElementById('cropperModal');
       const cropperImg = document.getElementById('cropperImage');
@@ -289,16 +375,16 @@
       cropperImg.onload = () => {
         cropperInstance = new Cropper(cropperImg, {
           viewMode: 1,
-          aspectRatio: NaN,
-          movable: true,
-          zoomable: true,
-          rotatable: true,
-          scalable: true,
-          autoCropArea: 1,
-          minCropBoxWidth: 50,
-          minCropBoxHeight: 50,
-          dragMode: 'move',
-          toggleDragModeOnDblclick: false
+            aspectRatio: NaN,
+            movable: true,
+            zoomable: true,
+            rotatable: true,
+            scalable: true,
+            autoCropArea: 1,
+            minCropBoxWidth: 50,
+            minCropBoxHeight: 50,
+            dragMode: 'move',
+            toggleDragModeOnDblclick: false
         });
         cropper = cropperInstance;
       };
@@ -309,15 +395,12 @@
         if (!cropperInstance) return;
         const effect = document.getElementById('effectSelect').value;
         const croppedCanvas = cropperInstance.getCroppedCanvas();
-        let resultCanvas = document.createElement('canvas');
+        const resultCanvas = document.createElement('canvas');
         resultCanvas.width = croppedCanvas.width;
         resultCanvas.height = croppedCanvas.height;
         resultCanvas.getContext('2d').drawImage(croppedCanvas,0,0);
-        if(effect === "gray") {
-          toGray(resultCanvas);
-        } else if(effect === "bw") {
-          toBW(resultCanvas);
-        }
+        if (effect === 'gray') toGray(resultCanvas);
+        else if (effect === 'bw') toBW(resultCanvas);
         cropperInstance.destroy();
         modal.style.display = 'none';
         window.removeEventListener('resize', setModalContentHeight);
@@ -330,22 +413,26 @@
       };
     }
 
-    function handleFiles(files) {
-      if (!files.length) return;
+    /********************
+     * 處理檔案          *
+     ********************/
+    function handleFiles(fileList) {
+      if (!fileList.length) return;
       document.getElementById('loading').style.display = '';
       let idx = 0;
       function next() {
-        if (idx >= files.length) {
+        if (idx >= fileList.length) {
           document.getElementById('loading').style.display = 'none';
           return;
         }
-        const file = files[idx];
+        const file = fileList[idx];
         if (!file.type.startsWith('image/')) { idx++; next(); return; }
         const reader = new FileReader();
         reader.onload = e => {
-          openCropper(e.target.result, (croppedDataUrl) => {
+          openCropper(e.target.result, croppedDataUrl => {
             images.push(croppedDataUrl);
             updatePreview();
+            saveStateDebounced();
             idx++;
             next();
           });
@@ -364,45 +451,100 @@
       e.target.value = '';
     });
 
+    /********************
+     * 預覽與拖曳排序    *
+     ********************/
     function updatePreview() {
       const preview = document.getElementById('preview');
       preview.innerHTML = '';
       images.forEach((src, i) => {
         const div = document.createElement('div');
         div.className = 'preview-item';
+        div.draggable = true;
+        div.dataset.index = i;
+
         const img = document.createElement('img');
         img.src = src;
-        img.onerror = function() { this.src = 'icon.png?v=20250726-11'; };
+        img.alt = '第 ' + (i+1) + ' 張圖片';
+        img.onerror = function(){ this.src='icon.png?v=20250811-1'; };
+
         const btn = document.createElement('button');
         btn.className = 'remove-btn';
         btn.textContent = '✖';
+        btn.title = '刪除這張';
         btn.onclick = () => {
-          images.splice(i, 1);
+          images.splice(i,1);
           updatePreview();
+          saveStateDebounced();
         };
+
+        // Drag events
+        div.addEventListener('dragstart', dragStart);
+        div.addEventListener('dragover', dragOver);
+        div.addEventListener('dragleave', dragLeave);
+        div.addEventListener('drop', dragDrop);
+        div.addEventListener('dragend', dragEnd);
+
         div.appendChild(img);
         div.appendChild(btn);
         preview.appendChild(div);
       });
+      updateLocalInfo();
     }
 
+    let dragSrcIndex = null;
+
+    function dragStart(e) {
+      dragSrcIndex = +this.dataset.index;
+      this.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      try { e.dataTransfer.setData('text/plain', dragSrcIndex); } catch(_) {}
+    }
+    function dragOver(e) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      if (!this.classList.contains('drag-over')) this.classList.add('drag-over');
+    }
+    function dragLeave() {
+      this.classList.remove('drag-over');
+    }
+    function dragDrop(e) {
+      e.preventDefault();
+      this.classList.remove('drag-over');
+      const targetIndex = +this.dataset.index;
+      if (dragSrcIndex === null || targetIndex === dragSrcIndex) return;
+      // 重新排序
+      const moved = images.splice(dragSrcIndex, 1)[0];
+      images.splice(targetIndex, 0, moved);
+      updatePreview();
+      saveStateDebounced();
+    }
+    function dragEnd() {
+      const items = document.querySelectorAll('.preview-item');
+      items.forEach(it => it.classList.remove('dragging','drag-over'));
+      dragSrcIndex = null;
+    }
+
+    /********************
+     * 產生 PDF (橫直)  *
+     ********************/
     function getPdfFilename() {
       const now = new Date();
       const yyyy = now.getFullYear();
-      const mm = String(now.getMonth() + 1).padStart(2, "0");
-      const dd = String(now.getDate()).padStart(2, "0");
-      const hh = String(now.getHours()).padStart(2, "0");
-      const min = String(now.getMinutes()).padStart(2, "0");
-      const ss = String(now.getSeconds()).padStart(2, "0");
+      const mm = String(now.getMonth()+1).padStart(2,'0');
+      const dd = String(now.getDate()).padStart(2,'0');
+      const hh = String(now.getHours()).padStart(2,'0');
+      const min = String(now.getMinutes()).padStart(2,'0');
+      const ss = String(now.getSeconds()).padStart(2,'0');
       return `${yyyy}${mm}${dd}_${hh}${min}${ss}_轉檔.pdf`;
     }
 
-    // PDF 橫向/直向自動判斷，每頁獨立
     function generatePDF() {
       if (images.length === 0) {
-        alert('請先新增照片');
+        alert('請先新增或裁切完成圖片');
         return;
       }
+      // 預先載入所有圖片 (確保知道寬高)
       const pdfImages = [];
       let loaded = 0;
       images.forEach((src, idx) => {
@@ -410,44 +552,50 @@
         img.onload = function() {
           pdfImages[idx] = img;
           loaded++;
-          if (loaded === images.length) {
-            buildPDF(pdfImages);
-          }
+          if (loaded === images.length) buildPDF(pdfImages);
         };
         img.src = src;
       });
     }
 
-    // 依每張圖片自動判斷橫向/直向
     function buildPDF(pdfImages) {
       let pdf = null;
       pdfImages.forEach((img, idx) => {
-        const isLandscape = img.width > img.height;
-        // 頁面方向
-        const orientation = isLandscape ? 'landscape' : 'portrait';
-        // 新增第一頁
+        const landscape = img.width > img.height;
+        const orientation = landscape ? 'landscape' : 'portrait';
         if (idx === 0) {
-          pdf = new jsPDF({ unit: 'pt', format: 'a4', orientation: orientation });
+          pdf = new jsPDF({ unit:'pt', format:'a4', orientation });
         } else {
           pdf.addPage('a4', orientation);
         }
-        // 計算圖片大小與位置
-        let pdfW = pdf.internal.pageSize.getWidth();
-        let pdfH = pdf.internal.pageSize.getHeight();
-        let ratio = Math.min(pdfW / img.width, pdfH / img.height);
-        let w = img.width * ratio, h = img.height * ratio;
-        let x = (pdfW - w) / 2, y = (pdfH - h) / 2;
+        const pdfW = pdf.internal.pageSize.getWidth();
+        const pdfH = pdf.internal.pageSize.getHeight();
+        const ratio = Math.min(pdfW / img.width, pdfH / img.height);
+        const w = img.width * ratio;
+        const h = img.height * ratio;
+        const x = (pdfW - w)/2;
+        const y = (pdfH - h)/2;
         pdf.addImage(img, 'JPEG', x, y, w, h);
       });
       pdf.save(getPdfFilename());
     }
-  </script>
-  <script>
+
+    /********************
+     * 初始化            *
+     ********************/
+    window.addEventListener('DOMContentLoaded', () => {
+      if (isLineBrowser()) {
+        document.getElementById('lineWarningModal').style.display='flex';
+        document.getElementById('openInBrowserBtn').onclick = openInBrowser;
+      }
+      loadState();
+    });
+
+    /********************
+     * Service Worker    *
+     ********************/
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('service-worker.js?v=20250726-11')
-        .then(function(reg) {
-          // console.log('Service Worker registered.', reg);
-        });
+      navigator.serviceWorker.register('service-worker.js?v=20250811-1').catch(()=>{});
     }
   </script>
 </body>
