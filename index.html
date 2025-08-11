@@ -61,7 +61,6 @@
       padding: 1em 0.5em;
       border-radius: 10px;
       max-width: 95vw;
-      max-height: 80vh;
       text-align: center;
       overflow-y: auto;
       display: flex;
@@ -76,7 +75,9 @@
       font-weight: bold;
     }
     #cropperImage {
-      max-width: 82vw;
+      width: auto;
+      height: auto;
+      max-width: 98vw;
       max-height: 28vh;
       margin-bottom: 0.5em;
       touch-action: none;
@@ -84,6 +85,8 @@
       background: #fafafa;
       border-radius: 4px;
       box-sizing: border-box;
+      display: block;
+      object-fit: contain;
     }
     .cropper-point {
       width: 30px !important;
@@ -270,6 +273,7 @@
       return canvas;
     }
 
+    // 動態設置 modal-content 的最大高度
     function setModalContentHeight() {
       var safeHeight = window.innerHeight - 28;
       var modalContent = document.querySelector('#cropperModal .modal-content');
@@ -397,49 +401,31 @@
       return `${yyyy}${mm}${dd}_${hh}${min}${ss}_轉檔.pdf`;
     }
 
-    // PDF 橫向/直向自動判斷，每頁獨立
     function generatePDF() {
       if (images.length === 0) {
         alert('請先新增照片');
         return;
       }
-      const pdfImages = [];
-      let loaded = 0;
-      images.forEach((src, idx) => {
-        const img = new Image();
-        img.onload = function() {
-          pdfImages[idx] = img;
-          loaded++;
-          if (loaded === images.length) {
-            buildPDF(pdfImages);
-          }
-        };
-        img.src = src;
+      const pdf = new jsPDF({ unit: 'pt', format: 'a4' });
+      let addImagePromises = images.map((src, idx) => {
+        return new Promise((resolve) => {
+          const img = new Image();
+          img.onload = () => {
+            let pdfW = pdf.internal.pageSize.getWidth();
+            let pdfH = pdf.internal.pageSize.getHeight();
+            let ratio = Math.min(pdfW / img.width, pdfH / img.height);
+            let w = img.width * ratio, h = img.height * ratio;
+            let x = (pdfW - w) / 2, y = (pdfH - h) / 2;
+            if (idx > 0) pdf.addPage();
+            pdf.addImage(img, 'JPEG', x, y, w, h);
+            resolve();
+          };
+          img.src = src;
+        });
       });
-    }
-
-    // 依每張圖片自動判斷橫向/直向
-    function buildPDF(pdfImages) {
-      let pdf = null;
-      pdfImages.forEach((img, idx) => {
-        const isLandscape = img.width > img.height;
-        // 頁面方向
-        const orientation = isLandscape ? 'landscape' : 'portrait';
-        // 新增第一頁
-        if (idx === 0) {
-          pdf = new jsPDF({ unit: 'pt', format: 'a4', orientation: orientation });
-        } else {
-          pdf.addPage('a4', orientation);
-        }
-        // 計算圖片大小與位置
-        let pdfW = pdf.internal.pageSize.getWidth();
-        let pdfH = pdf.internal.pageSize.getHeight();
-        let ratio = Math.min(pdfW / img.width, pdfH / img.height);
-        let w = img.width * ratio, h = img.height * ratio;
-        let x = (pdfW - w) / 2, y = (pdfH - h) / 2;
-        pdf.addImage(img, 'JPEG', x, y, w, h);
+      Promise.all(addImagePromises).then(() => {
+        pdf.save(getPdfFilename());
       });
-      pdf.save(getPdfFilename());
     }
   </script>
   <script>
