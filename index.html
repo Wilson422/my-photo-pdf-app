@@ -9,11 +9,9 @@
   h2 { margin-top:0; }
   .actions { display:flex; flex-wrap:wrap; gap:.5em; align-items:center; margin-bottom:.6em; }
   .actions input[type=file]{ display:none; }
-  .actions button {
-    background:#f5f5f5; border:none; padding:.5em .9em; font-size:.92em;
-    border-radius:8px; cursor:pointer;
-  }
-  .actions button:hover { background:#eaeaea; }
+  .actions button, .actions label { background:#f5f5f5; border:none; padding:.45em .8em; font-size:.92em; border-radius:8px; cursor:pointer; }
+  .actions label { display:flex; align-items:center; gap:.4em; }
+  .actions button:hover, .actions label:hover { background:#eaeaea; }
   button.danger { background:#ffecec; color:#b80000; }
   #loading { display:none; font-size:.85em; color:#004; font-weight:bold; margin-left:.6em; }
 
@@ -110,17 +108,15 @@
   <input type="file" accept="image/*" multiple id="fileInput">
   <button onclick="triggerCamera()">📷 拍照</button>
   <button onclick="triggerFile()">🖼️ 選照片</button>
-  <label style="display:flex;align-items:center;gap:.4em;">
-    <input type="checkbox" id="coverMode"> 滿版模式（Cover，會裁切超出頁面部分）
+  <label>
+    <input type="checkbox" id="coverMode"> 90% 放大（不裁切原始裁切結果）
   </label>
   <button onclick="generatePDF()">🧾 產生 PDF</button>
   <button class="danger" onclick="clearAllImages()">🗑️ 清除全部</button>
   <span id="loading">處理中...</span>
 </div>
 
-<!-- 顯示目前圖片數量 -->
 <div id="storageInfo">目前圖片數量：0</div>
-
 <div id="preview"></div>
 
 <!-- 裁切 Modal -->
@@ -130,7 +126,6 @@
 
     <div id="canvasContainer" class="canvas-wrapper" style="touch-action:none;">
       <canvas id="cropperCanvas" width="800" height="600"></canvas>
-      <!-- handles inserted here as DOM nodes -->
     </div>
 
     <div class="controls">
@@ -143,7 +138,7 @@
       </label>
     </div>
 
-    <div class="guide">如果看不到下方點，請將畫面放大或點選點附近（會自動選取最近的點）。</div>
+    <div class="guide">如果看不到下方點，請放大或點選點附近（會自動選取最近的點）。</div>
 
     <div id="cropperBtns">
       <button id="cropResetBtn">重設</button>
@@ -159,18 +154,18 @@ const CONFIG = {
   FULL_MAX_DIM: 2000,
   PREVIEW_MAX_WIDTH: 420,
   IMAGE_QUALITY: 0.9,
-  // Cover fill fraction: 0.9 = 90% fill (not fully edge-to-edge)
-  COVER_FILL: 0.90
+  FILL_RATIO: 0.90 // 90% 放大（contain within 90%）
 };
-let images = []; // 存放已處理的影像物件
+let images = [];
 const { jsPDF } = window.jspdf || {};
 
-/* ---------- helpers ---------- */
+/* ---------- utility: dataURL -> Blob ---------- */
 function dataURLToBlob(dataURL) {
   const parts = dataURL.split(',');
-  const meta = parts[0];
-  const base64 = parts[1];
-  const mime = meta.match(/:(.*?);/)[1];
+  const meta = parts[0] || '';
+  const base64 = parts[1] || '';
+  const mimeMatch = meta.match(/:(.*?);/);
+  const mime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
   const binary = atob(base64);
   const len = binary.length;
   const arr = new Uint8Array(len);
@@ -178,35 +173,30 @@ function dataURLToBlob(dataURL) {
   return new Blob([arr], { type: mime });
 }
 
-// Robust image dimension read: prefer createImageBitmap (if available), else Image.naturalWidth/naturalHeight
+/* ---------- robust image dimension read ---------- */
 async function getImageDimensions(dataUrl) {
+  // Prefer createImageBitmap for accurate pixel sizes
   try {
     if ('createImageBitmap' in window) {
-      // createImageBitmap from blob is more reliable cross-browser
       const blob = dataURLToBlob(dataUrl);
       const bitmap = await createImageBitmap(blob);
-      // bitmap.width/height reflect pixel dimensions
       return { width: bitmap.width, height: bitmap.height };
     } else {
       return await new Promise((resolve, reject) => {
         const img = new Image();
-        img.onload = () => {
-          resolve({ width: img.naturalWidth || img.width, height: img.naturalHeight || img.height });
-        };
-        img.onerror = (e) => reject(e);
+        img.onload = () => resolve({ width: img.naturalWidth || img.width, height: img.naturalHeight || img.height });
+        img.onerror = reject;
         img.src = dataUrl;
       });
     }
   } catch (e) {
-    // final fallback: attempt to draw and read from a canvas
+    // fallback: draw to canvas
     return await new Promise((resolve, reject) => {
       const img = new Image();
       img.onload = () => {
         const c = document.createElement('canvas');
-        c.width = img.naturalWidth || img.width || 1000;
-        c.height = img.naturalHeight || img.height || 1000;
-        const ctx = c.getContext('2d');
-        ctx.drawImage(img, 0, 0);
+        c.width = img.naturalWidth || img.width || CONFIG.FULL_MAX_DIM;
+        c.height = img.naturalHeight || img.height || CONFIG.FULL_MAX_DIM;
         resolve({ width: c.width, height: c.height });
       };
       img.onerror = reject;
@@ -215,7 +205,7 @@ async function getImageDimensions(dataUrl) {
   }
 }
 
-/* ---------- Homography & Warp (bilinear) helpers ---------- */
+/* ---------- Homography & Warp (bilinear sampling) ---------- */
 function solveLinearSystem(A, b) {
   const n = A.length;
   const M = new Array(n).fill(0).map((_,i)=>A[i].slice().concat(b[i]));
@@ -303,6 +293,8 @@ function warpImageWithHomography(srcCanvas, H, dstW, dstH){
   dstCtx.putImageData(dstImgData, 0, 0);
   return dst;
 }
+
+/* ---------- image effect ---------- */
 function applyEffect(canvas, effect){
   if (!canvas || effect === 'original') return;
   const ctx = canvas.getContext('2d');
@@ -338,7 +330,7 @@ function applyEffect(canvas, effect){
   ctx.putImageData(imgd, 0, 0);
 }
 
-/* ---------- cropper UI & processing (unchanged besides dst calc improvements) ---------- */
+/* ---------- cropper UI (handles + modal) ---------- */
 function openCropper(dataUrl){
   return new Promise((resolve, reject) => {
     const modal = document.getElementById('cropperModal');
@@ -501,7 +493,7 @@ function openCropper(dataUrl){
       const wA = dist(srcPts[2], srcPts[3]), wB = dist(srcPts[1], srcPts[0]);
       const hA = dist(srcPts[1], srcPts[2]), hB = dist(srcPts[0], srcPts[3]);
 
-      // compute bounding box and robust dst size
+      // bounding box to robustly determine size
       const xs = srcPts.map(p => p.x);
       const ys = srcPts.map(p => p.y);
       const bboxW = Math.max(...xs) - Math.min(...xs);
@@ -680,43 +672,35 @@ function clearAllImages(){ if (confirm('確定刪除全部圖片？')) { images 
 function triggerCamera(){ document.getElementById('cameraInput').click(); }
 function triggerFile(){ document.getElementById('fileInput').click(); }
 
+/* ---------- filename ---------- */
 function getPdfFilename(){
   const d=new Date(), p=n=>String(n).padStart(2,'0');
   return d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+'_'+p(d.getHours())+p(d.getMinutes())+p(d.getSeconds())+'_轉檔.pdf';
 }
 
-/* ---------- generatePDF with improved iOS orientation detection & 90% cover ---------- */
+/* ---------- generatePDF: 90% fill (contain) and robust iOS orientation ---------- */
 async function generatePDF(){
   if (!images.length){ alert('請先加入圖片'); return; }
-
   const pdf = new jsPDF({unit:'pt', format:'a4', orientation: 'portrait'});
   let first = true;
-  const coverMode = !!document.getElementById('coverMode').checked;
-  const coverFill = CONFIG.COVER_FILL; // 0.90 => 90% fill in cover mode
+  const fillMode = !!document.getElementById('coverMode').checked;
+  const fillRatio = CONFIG.FILL_RATIO;
 
   for (let idx=0; idx<images.length; idx++){
     const o = images[idx];
 
-    // robustly get image pixel dims (works better across iOS/Android/browsers)
-    let iw = 0, ih = 0;
+    // robustly read pixel dims
+    let iw=0, ih=0;
     try {
       const dims = await getImageDimensions(o.fullDataUrl);
       iw = dims.width || iw;
       ih = dims.height || ih;
     } catch(e){
-      // fallback to stored values
-      iw = o.w || iw;
-      ih = o.h || ih;
+      iw = o.w || 2480; ih = o.h || 3508;
     }
+    if (!iw || !ih) { iw = o.w || 2480; ih = o.h || 3508; }
 
-    // fallback defaults
-    if (!iw || !ih || isNaN(iw) || isNaN(ih) || iw <= 0 || ih <= 0){
-      // best-effort defaults (A4-ish)
-      iw = o.w || 2480;
-      ih = o.h || 3508;
-    }
-
-    // Decide page orientation by actual pixel orientation
+    // decide orientation by pixel dims
     const isLandscape = iw > ih;
     const orientation = isLandscape ? 'landscape' : 'portrait';
 
@@ -731,71 +715,40 @@ async function generatePDF(){
     const pageW = pdf.internal.pageSize.getWidth();
     const pageH = pdf.internal.pageSize.getHeight();
 
-    // MIN_MARGIN small to avoid completely edge-to-edge
-    const MIN_MARGIN_PX = 2;
+    // target maximum area (90% if fillMode, else 98% to leave a little margin)
+    const targetW = pageW * (fillMode ? fillRatio : 0.98);
+    const targetH = pageH * (fillMode ? fillRatio : 0.98);
 
-    // dynamic margin fractions
-    let marginFractionX = 0.01;
-    let marginFractionY = 0.01;
-
-    if (coverMode) {
-      // minimal margins in cover mode
-      marginFractionX = 0.005;
-      marginFractionY = 0.005;
-    } else {
-      // slightly reduce the padding along main axis
-      if (isLandscape) marginFractionX = 0.008;
-      else marginFractionY = 0.008;
-    }
-
-    const marginX = Math.max(pageW * marginFractionX, MIN_MARGIN_PX);
-    const marginY = Math.max(pageH * marginFractionY, MIN_MARGIN_PX);
-
-    const maxW = pageW - 2 * marginX;
-    const maxH = pageH - 2 * marginY;
-
+    // contain within target area (no cropping of your cropped result)
+    const imgAspect = iw / ih;
     let drawW, drawH;
-
-    if (coverMode) {
-      // scale to cover, then multiply by COVER_FILL to leave ~10% visible margin
-      const scaleCover = Math.max(maxW / iw, maxH / ih);
-      const scale = Math.max(scaleCover * coverFill, 0.001);
-      drawW = Math.round(iw * scale);
-      drawH = Math.round(ih * scale);
+    if (imgAspect > (targetW / targetH)) {
+      drawW = targetW;
+      drawH = drawW / imgAspect;
     } else {
-      const imgAspect = iw / ih;
-      if (imgAspect > (maxW / maxH)) {
-        drawW = maxW;
-        drawH = drawW / imgAspect;
-      } else {
-        drawH = maxH;
-        drawW = drawH * imgAspect;
-      }
+      drawH = targetH;
+      drawW = drawH * imgAspect;
     }
 
     const x = (pageW - drawW) / 2;
     const y = (pageH - drawH) / 2;
 
-    const X = isFinite(x) ? x : 0;
-    const Y = isFinite(y) ? y : 0;
-    const DW = isFinite(drawW) ? drawW : maxW;
-    const DH = isFinite(drawH) ? drawH : maxH;
-
-    // Add the image into PDF
-    pdf.addImage(o.fullDataUrl, 'JPEG', X, Y, DW, DH);
+    pdf.addImage(o.fullDataUrl, 'JPEG', x, y, drawW, drawH);
   }
 
   pdf.save(getPdfFilename());
 }
 
-/* ---------- auto-enable cover mode on iOS for convenience ---------- */
+/* ---------- auto-enable 90% fill on iOS convenience ---------- */
 window.addEventListener('DOMContentLoaded', ()=>{
   updatePreview();
   updateStorageInfoEstimate();
-  const ua = navigator.userAgent || navigator.vendor || '';
-  if (/iPhone|iPad|iPod/i.test(ua)) {
-    try { document.getElementById('coverMode').checked = true; } catch(e){}
-  }
+  try {
+    const ua = navigator.userAgent || navigator.vendor || '';
+    if (/iPhone|iPad|iPod/i.test(ua)) {
+      document.getElementById('coverMode').checked = true;
+    }
+  } catch(e){}
 });
 </script>
 </body>
