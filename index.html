@@ -9,9 +9,11 @@
   h2 { margin-top:0; }
   .actions { display:flex; flex-wrap:wrap; gap:.5em; align-items:center; margin-bottom:.6em; }
   .actions input[type=file]{ display:none; }
-  .actions button, .actions label { background:#f5f5f5; border:none; padding:.45em .8em; font-size:.92em; border-radius:8px; cursor:pointer; }
-  .actions label { display:flex; align-items:center; gap:.4em; }
-  .actions button:hover, .actions label:hover { background:#eaeaea; }
+  .actions button {
+    background:#f5f5f5; border:none; padding:.5em .9em; font-size:.92em;
+    border-radius:8px; cursor:pointer;
+  }
+  .actions button:hover { background:#eaeaea; }
   button.danger { background:#ffecec; color:#b80000; }
   #loading { display:none; font-size:.85em; color:#004; font-weight:bold; margin-left:.6em; }
 
@@ -108,15 +110,14 @@
   <input type="file" accept="image/*" multiple id="fileInput">
   <button onclick="triggerCamera()">📷 拍照</button>
   <button onclick="triggerFile()">🖼️ 選照片</button>
-  <label>
-    <input type="checkbox" id="coverMode"> 90% 放大
-  </label>
   <button onclick="generatePDF()">🧾 產生 PDF</button>
   <button class="danger" onclick="clearAllImages()">🗑️ 清除全部</button>
   <span id="loading">處理中...</span>
 </div>
 
+<!-- 顯示目前圖片數量 -->
 <div id="storageInfo">目前圖片數量：0</div>
+
 <div id="preview"></div>
 
 <!-- 裁切 Modal -->
@@ -126,7 +127,7 @@
 
     <div id="canvasContainer" class="canvas-wrapper" style="touch-action:none;">
       <canvas id="cropperCanvas" width="800" height="600"></canvas>
-      <!-- handles inserted dynamically -->
+      <!-- handles inserted here as DOM nodes -->
     </div>
 
     <div class="controls">
@@ -139,7 +140,7 @@
       </label>
     </div>
 
-    <div class="guide">如果看不到下方點，請放大或點選點附近（會自動選取最近的點）。</div>
+    <div class="guide">如果看不到下方點，請將畫面放大或點選點附近（會自動選取最近的點）。</div>
 
     <div id="cropperBtns">
       <button id="cropResetBtn">重設</button>
@@ -154,58 +155,12 @@
 const CONFIG = {
   FULL_MAX_DIM: 2000,
   PREVIEW_MAX_WIDTH: 420,
-  IMAGE_QUALITY: 0.9,
-  FILL_RATIO: 0.90 // 90% 放大（contain within 90%）
+  IMAGE_QUALITY: 0.9
 };
-let images = [];
+let images = []; // 存放已處理的影像物件
 const { jsPDF } = window.jspdf || {};
 
-/* ---------- utility: dataURL -> Blob ---------- */
-function dataURLToBlob(dataURL) {
-  const parts = dataURL.split(',');
-  const meta = parts[0] || '';
-  const base64 = parts[1] || '';
-  const mimeMatch = meta.match(/:(.*?);/);
-  const mime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
-  const binary = atob(base64);
-  const len = binary.length;
-  const arr = new Uint8Array(len);
-  for (let i = 0; i < len; i++) arr[i] = binary.charCodeAt(i);
-  return new Blob([arr], { type: mime });
-}
-
-/* ---------- robust image dimension read ---------- */
-async function getImageDimensions(dataUrl) {
-  try {
-    if ('createImageBitmap' in window) {
-      const blob = dataURLToBlob(dataUrl);
-      const bitmap = await createImageBitmap(blob);
-      return { width: bitmap.width, height: bitmap.height };
-    } else {
-      return await new Promise((resolve, reject) => {
-        const img = new Image();
-        img.onload = () => resolve({ width: img.naturalWidth || img.width, height: img.naturalHeight || img.height });
-        img.onerror = reject;
-        img.src = dataUrl;
-      });
-    }
-  } catch (e) {
-    // fallback: draw to canvas to infer size
-    return await new Promise((resolve, reject) => {
-      const img = new Image();
-      img.onload = () => {
-        const c = document.createElement('canvas');
-        c.width = img.naturalWidth || img.width || CONFIG.FULL_MAX_DIM;
-        c.height = img.naturalHeight || img.height || CONFIG.FULL_MAX_DIM;
-        resolve({ width: c.width, height: c.height });
-      };
-      img.onerror = reject;
-      img.src = dataUrl;
-    });
-  }
-}
-
-/* ---------- Homography & Warp (bilinear sampling) ---------- */
+/* ---------- Homography & Warp (bilinear) helpers ---------- */
 function solveLinearSystem(A, b) {
   const n = A.length;
   const M = new Array(n).fill(0).map((_,i)=>A[i].slice().concat(b[i]));
@@ -264,6 +219,7 @@ function warpImageWithHomography(srcCanvas, H, dstW, dstH){
       if (denom === 0) continue;
       const sx = (Hinv[0][0]*i + Hinv[0][1]*j + Hinv[0][2]) / denom;
       const sy = (Hinv[1][0]*i + Hinv[1][1]*j + Hinv[1][2]) / denom;
+      // bilinear sampling
       let sample;
       if (sx<0||sy<0||sx>=srcW||sy>=srcH) {
         const xi = Math.min(Math.max(Math.round(sx),0), srcW-1);
@@ -293,8 +249,6 @@ function warpImageWithHomography(srcCanvas, H, dstW, dstH){
   dstCtx.putImageData(dstImgData, 0, 0);
   return dst;
 }
-
-/* ---------- image effect ---------- */
 function applyEffect(canvas, effect){
   if (!canvas || effect === 'original') return;
   const ctx = canvas.getContext('2d');
@@ -330,7 +284,7 @@ function applyEffect(canvas, effect){
   ctx.putImageData(imgd, 0, 0);
 }
 
-/* ---------- cropper UI & processing ---------- */
+/* ---------- openCropper (DOM handles) ---------- */
 function openCropper(dataUrl){
   return new Promise((resolve, reject) => {
     const modal = document.getElementById('cropperModal');
@@ -341,7 +295,7 @@ function openCropper(dataUrl){
     modal.style.display = 'flex';
 
     const img = new Image();
-    let imgDraw = { dx:0, dy:0, dw:0, dh:0, scale:1 };
+    let imgDraw = { dx:0, dy:0, dw:0, dh:0, scale:1 }; // CSS px
     let handles = [];
     let handleEls = [];
 
@@ -396,6 +350,7 @@ function openCropper(dataUrl){
       drawCanvas();
     }
 
+    // wrapper-level pointer handling
     let draggingIdx = -1;
     function wrapperPointerDown(e){
       const rect = canvas.getBoundingClientRect();
@@ -477,6 +432,9 @@ function openCropper(dataUrl){
       imgDraw = { dx, dy, dw, dh, scale };
       wrapper.style.width = canvas.style.width;
       wrapper.style.height = canvas.style.height;
+      wrapper.style.display = 'inline-block';
+      wrapper.style.position = 'relative';
+      wrapper.style.touchAction = 'none';
       ensureHandles();
       resetHandles();
       positionHandleEls();
@@ -492,20 +450,8 @@ function openCropper(dataUrl){
       function dist(a,b){ return Math.hypot(a.x-b.x,a.y-b.y); }
       const wA = dist(srcPts[2], srcPts[3]), wB = dist(srcPts[1], srcPts[0]);
       const hA = dist(srcPts[1], srcPts[2]), hB = dist(srcPts[0], srcPts[3]);
-
-      // bounding box to robustly determine size
-      const xs = srcPts.map(p => p.x);
-      const ys = srcPts.map(p => p.y);
-      const bboxW = Math.max(...xs) - Math.min(...xs);
-      const bboxH = Math.max(...ys) - Math.min(...ys);
-
-      let dstW = Math.round((wA + wB + bboxW) / 3) || 1;
-      let dstH = Math.round((hA + hB + bboxH) / 3) || 1;
-      dstW = Math.min(dstW, CONFIG.FULL_MAX_DIM);
-      dstH = Math.min(dstH, CONFIG.FULL_MAX_DIM);
-
-      console.debug('crop srcPts:', srcPts, 'bboxW,bboxH:', bboxW, bboxH, 'dstW,dstH:', dstW, dstH);
-
+      const dstW = Math.min(Math.round(Math.max(wA,wB)), CONFIG.FULL_MAX_DIM);
+      const dstH = Math.min(Math.round(Math.max(hA,hB)), CONFIG.FULL_MAX_DIM);
       const dstPts = [{x:0,y:0},{x:dstW-1,y:0},{x:dstW-1,y:dstH-1},{x:0,y:dstH-1}];
       const H = computeHomography(srcPts, dstPts);
       if (!H) { alert('計算失敗，請調整四點後重試'); return; }
@@ -607,10 +553,11 @@ function updatePreview(){
 
     const del = document.createElement('button');
     del.className = 'remove-btn';
-    del.textContent = 'X';
+    del.textContent = 'X';            // 改成 "X" 字樣（依照要求）
     del.title = '刪除此張';
     del.onclick = (e) => {
       e.stopPropagation();
+      // 直接刪除，不再跳確認視窗（使用者要求）
       images = images.filter(x => x.id !== o.id);
       updatePreview();
       updateStorageInfoEstimate();
@@ -672,108 +619,30 @@ function clearAllImages(){ if (confirm('確定刪除全部圖片？')) { images 
 function triggerCamera(){ document.getElementById('cameraInput').click(); }
 function triggerFile(){ document.getElementById('fileInput').click(); }
 
-/* ---------- filename ---------- */
 function getPdfFilename(){
   const d=new Date(), p=n=>String(n).padStart(2,'0');
   return d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+'_'+p(d.getHours())+p(d.getMinutes())+p(d.getSeconds())+'_轉檔.pdf';
 }
-
-/* ---------- generatePDF: 90% fill (contain) with debug and correct checkbox read ---------- */
-async function generatePDF(){
+function generatePDF(){
   if (!images.length){ alert('請先加入圖片'); return; }
-
   const pdf = new jsPDF({unit:'pt', format:'a4', orientation: 'portrait'});
-  let first = true;
-
-  // read checkbox state at runtime
-  const checkbox = document.getElementById('coverMode');
-  const fillMode = !!(checkbox && checkbox.checked);
-  const fillRatio = CONFIG.FILL_RATIO || 0.90;
-
-  console.debug('generatePDF start', { fillMode, fillRatio, imagesCount: images.length });
-
-  for (let idx = 0; idx < images.length; idx++){
-    const o = images[idx];
-
-    // get pixel aspect via robust method
-    let iw = 0, ih = 0;
-    try {
-      const dims = await getImageDimensions(o.fullDataUrl);
-      iw = dims.width || iw;
-      ih = dims.height || ih;
-    } catch (err) {
-      iw = o.w || 2480;
-      ih = o.h || 3508;
-    }
-    if (!iw || !ih) { iw = o.w || 2480; ih = o.h || 3508; }
-
-    const aspect = (iw / ih) || 1;
-    const isLandscape = aspect > 1;
-    const orientation = isLandscape ? 'landscape' : 'portrait';
-
-    if (first){
-      pdf.deletePage(1);
-      pdf.addPage('a4', orientation);
-      first = false;
-    } else {
-      pdf.addPage('a4', orientation);
-    }
-
-    const pageW = pdf.internal.pageSize.getWidth();
-    const pageH = pdf.internal.pageSize.getHeight();
-
-    // target area: if fillMode use fillRatio (90%), else leave a bit more margin (98%)
-    const targetW = pageW * (fillMode ? fillRatio : 0.98);
-    const targetH = pageH * (fillMode ? fillRatio : 0.98);
-
-    // contain within target area (no cropping)
-    let drawW, drawH;
-    if (aspect > (targetW / targetH)) {
-      // fit by width
-      drawW = targetW;
-      drawH = drawW / aspect;
-    } else {
-      // fit by height
-      drawH = targetH;
-      drawW = drawH * aspect;
-    }
-
-    const x = (pageW - drawW) / 2;
-    const y = (pageH - drawH) / 2;
-
-    console.debug(`page ${idx+1}`, {
-      pageW, pageH, targetW, targetH, aspect,
-      drawW, drawH, x, y
-    });
-
-    // Add image
-    pdf.addImage(o.fullDataUrl, 'JPEG', x, y, drawW, drawH);
-  }
-
+  let first=true;
+  images.forEach(o=>{
+    const isLandscape = o.w > o.h;
+    if (first){ pdf.deletePage(1); pdf.addPage('a4', isLandscape ? 'landscape' : 'portrait'); first=false; }
+    else pdf.addPage('a4', isLandscape ? 'landscape' : 'portrait');
+    const pdfW = pdf.internal.pageSize.getWidth();
+    const pdfH = pdf.internal.pageSize.getHeight();
+    const ratio = Math.min(pdfW / o.w, pdfH / o.h);
+    const w = o.w * ratio, h = o.h * ratio;
+    const x = (pdfW - w) / 2, y = (pdfH - h) / 2;
+    pdf.addImage(o.fullDataUrl, 'JPEG', x, y, w, h);
+  });
   pdf.save(getPdfFilename());
 }
 
-/* ---------- checkbox change listener for debug ---------- */
-(function attachCoverModeDebug(){
-  const cb = document.getElementById('coverMode');
-  if (!cb) return;
-  cb.addEventListener('change', () => {
-    console.debug('coverMode changed ->', cb.checked);
-  });
-})();
-
-/* ---------- auto-enable 90% fill on iOS convenience & init ---------- */
-window.addEventListener('DOMContentLoaded', ()=>{
-  updatePreview();
-  updateStorageInfoEstimate();
-  try {
-    const ua = navigator.userAgent || navigator.vendor || '';
-    if (/iPhone|iPad|iPod/i.test(ua)) {
-      document.getElementById('coverMode').checked = true;
-      console.debug('iOS detected: coverMode auto-enabled');
-    }
-  } catch(e){}
-});
+/* init */
+window.addEventListener('DOMContentLoaded', ()=>{ updatePreview(); updateStorageInfoEstimate(); });
 </script>
 </body>
 </html>
