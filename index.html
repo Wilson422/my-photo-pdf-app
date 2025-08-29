@@ -284,6 +284,103 @@ function applyEffect(canvas, effect){
   ctx.putImageData(imgd, 0, 0);
 }
 
+/* ---------- EXIF orientation helpers ---------- */
+/* 讀 JPEG ArrayBuffer 找到 Exif orientation (1..8)，找不到則回傳 1 */
+function readImageOrientation(arrayBuffer){
+  try {
+    const view = new DataView(arrayBuffer);
+    if (view.getUint16(0) !== 0xFFD8) return 1; // not JPEG
+    let offset = 2;
+    const len = view.byteLength;
+    while (offset < len) {
+      if (view.getUint8(offset) !== 0xFF) break;
+      const marker = view.getUint8(offset + 1);
+      offset += 2;
+      if (marker === 0xE1) { // APP1 (Exif)
+        const app1Len = view.getUint16(offset);
+        offset += 2;
+        // check "Exif\0\0"
+        if (view.getUint32(offset) !== 0x45786966) return 1; // "Exif"
+        offset += 6;
+        const little = view.getUint16(offset) === 0x4949;
+        const getUint16 = (o) => little ? view.getUint16(o, true) : view.getUint16(o, false);
+        const getUint32 = (o) => little ? view.getUint32(o, true) : view.getUint32(o, false);
+        const tiffOffset = offset;
+        const firstIFDOffset = getUint32(tiffOffset + 4);
+        let dirOffset = tiffOffset + firstIFDOffset;
+        const numEntries = getUint16(dirOffset);
+        dirOffset += 2;
+        for (let i = 0; i < numEntries; i++) {
+          const entryOffset = dirOffset + i*12;
+          const tag = getUint16(entryOffset);
+          if (tag === 0x0112) {
+            const value = getUint16(entryOffset + 8);
+            return value;
+          }
+        }
+        break;
+      } else {
+        const size = view.getUint16(offset);
+        offset += size;
+      }
+    }
+  } catch (e) {
+    console.warn('readImageOrientation error', e);
+  }
+  return 1;
+}
+
+/* 根據 EXIF orientation 將 dataURL 的影像畫成正確方向，回傳新的 dataURL */
+function normalizeDataUrlByOrientation(dataUrl, orientation){
+  return new Promise((resolve, reject) => {
+    if (!orientation || orientation === 1) return resolve(dataUrl);
+    const img = new Image();
+    img.onload = () => {
+      let w = img.width, h = img.height;
+      let canvas = document.createElement('canvas');
+      let ctx = canvas.getContext('2d');
+
+      // orientation 5/6/7/8 => rotate 90/270, swap dims
+      if (orientation >=5 && orientation <=8) {
+        canvas.width = h; canvas.height = w;
+      } else {
+        canvas.width = w; canvas.height = h;
+      }
+
+      // apply transform
+      switch(orientation){
+        case 2: // horizontal flip
+          ctx.translate(w, 0); ctx.scale(-1,1); break;
+        case 3: // rotate 180
+          ctx.translate(w, h); ctx.rotate(Math.PI); break;
+        case 4: // vertical flip
+          ctx.translate(0, h); ctx.scale(1,-1); break;
+        case 5: // transpose: flip horizontal and rotate 90
+          ctx.rotate(0.5*Math.PI); ctx.scale(1,-1); break;
+        case 6: // rotate 90
+          ctx.rotate(0.5*Math.PI); ctx.translate(0, -h); break;
+        case 7: // transverse: flip vertical and rotate 90
+          ctx.rotate(0.5*Math.PI); ctx.translate(w, -h); ctx.scale(-1,1); break;
+        case 8: // rotate 270
+          ctx.rotate(-0.5*Math.PI); ctx.translate(-w, 0); break;
+        default:
+          break;
+      }
+
+      ctx.drawImage(img, 0, 0);
+      try {
+        const normalized = canvas.toDataURL('image/jpeg', 0.98);
+        resolve(normalized);
+      } catch (e) {
+        console.warn('normalizeDataUrlByOrientation failed', e);
+        resolve(dataUrl);
+      }
+    };
+    img.onerror = (e) => { resolve(dataUrl); };
+    img.src = dataUrl;
+  });
+}
+
 /* ---------- openCropper (DOM handles) ---------- */
 function openCropper(dataUrl){
   return new Promise((resolve, reject) => {
@@ -499,6 +596,23 @@ function processCroppedCanvas(croppedCanvas, effect){
 }
 
 /* ---------- file handling & UI glue ---------- */
+function readFileAsArrayBuffer(file){
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(fr.result);
+    fr.onerror = reject;
+    fr.readAsArrayBuffer(file);
+  });
+}
+function readFileAsDataURL(file){
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(fr.result);
+    fr.onerror = reject;
+    fr.readAsDataURL(file);
+  });
+}
+
 function handleFiles(fileList){
   if (!fileList || !fileList.length) return;
   document.getElementById('loading').style.display = '';
@@ -507,10 +621,16 @@ function handleFiles(fileList){
     if (idx >= fileList.length) { document.getElementById('loading').style.display = 'none'; return; }
     const f = fileList[idx++];
     if (!f.type.startsWith('image/')) return next();
-    const reader = new FileReader();
-    reader.onload = async (e) => {
+    (async () => {
       try {
-        const { croppedCanvas, effect } = await openCropper(e.target.result);
+        // 讀取 ArrayBuffer 以解析 EXIF orientation，同時讀 DataURL
+        const [arrayBuffer, dataUrl] = await Promise.all([readFileAsArrayBuffer(f), readFileAsDataURL(f)]);
+        const orientation = readImageOrientation(arrayBuffer) || 1;
+        let normalizedDataUrl = dataUrl;
+        if (orientation && orientation !== 1){
+          normalizedDataUrl = await normalizeDataUrlByOrientation(dataUrl, orientation);
+        }
+        const { croppedCanvas, effect } = await openCropper(normalizedDataUrl);
         const processed = await processCroppedCanvas(croppedCanvas, effect);
         images.push({
           id: Date.now().toString(36) + Math.random().toString(36).slice(2,9),
@@ -525,8 +645,7 @@ function handleFiles(fileList){
       } finally {
         next();
       }
-    };
-    reader.readAsDataURL(f);
+    })();
   })();
 }
 document.getElementById('cameraInput').addEventListener('change', e => { handleFiles(e.target.files); e.target.value=''; });
