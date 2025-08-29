@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1.0" />
-<title>文件拍照轉 PDF（四點手動校正）</title>
+<title>文件拍照轉 PDF（四點手動校正 - 含排序與刪除）</title>
 <style>
   body { font-family: Arial, "Noto Sans TC", sans-serif; margin:1.2em; background:#fff; }
   h2 { margin-top:0; }
@@ -103,7 +103,7 @@
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 </head>
 <body>
-<h2>📄 文件拍照轉 PDF（四點手動校正）</h2>
+<h2>📄 文件拍照轉 PDF（四點手動校正 - 含排序與刪除）</h2>
 
 <div class="actions">
   <input type="file" accept="image/*" capture="environment" id="cameraInput">
@@ -158,12 +158,64 @@
 const CONFIG = {
   FULL_MAX_DIM: 2000,
   PREVIEW_MAX_WIDTH: 420,
-  IMAGE_QUALITY: 0.9
+  IMAGE_QUALITY: 0.9,
+  // Cover fill fraction: 0.9 = 90% fill (not fully edge-to-edge)
+  COVER_FILL: 0.90
 };
 let images = []; // 存放已處理的影像物件
 const { jsPDF } = window.jspdf || {};
 
-/* ---------- helpers (homography/warp/applyEffect) ---------- */
+/* ---------- helpers ---------- */
+function dataURLToBlob(dataURL) {
+  const parts = dataURL.split(',');
+  const meta = parts[0];
+  const base64 = parts[1];
+  const mime = meta.match(/:(.*?);/)[1];
+  const binary = atob(base64);
+  const len = binary.length;
+  const arr = new Uint8Array(len);
+  for (let i = 0; i < len; i++) arr[i] = binary.charCodeAt(i);
+  return new Blob([arr], { type: mime });
+}
+
+// Robust image dimension read: prefer createImageBitmap (if available), else Image.naturalWidth/naturalHeight
+async function getImageDimensions(dataUrl) {
+  try {
+    if ('createImageBitmap' in window) {
+      // createImageBitmap from blob is more reliable cross-browser
+      const blob = dataURLToBlob(dataUrl);
+      const bitmap = await createImageBitmap(blob);
+      // bitmap.width/height reflect pixel dimensions
+      return { width: bitmap.width, height: bitmap.height };
+    } else {
+      return await new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+          resolve({ width: img.naturalWidth || img.width, height: img.naturalHeight || img.height });
+        };
+        img.onerror = (e) => reject(e);
+        img.src = dataUrl;
+      });
+    }
+  } catch (e) {
+    // final fallback: attempt to draw and read from a canvas
+    return await new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const c = document.createElement('canvas');
+        c.width = img.naturalWidth || img.width || 1000;
+        c.height = img.naturalHeight || img.height || 1000;
+        const ctx = c.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        resolve({ width: c.width, height: c.height });
+      };
+      img.onerror = reject;
+      img.src = dataUrl;
+    });
+  }
+}
+
+/* ---------- Homography & Warp (bilinear) helpers ---------- */
 function solveLinearSystem(A, b) {
   const n = A.length;
   const M = new Array(n).fill(0).map((_,i)=>A[i].slice().concat(b[i]));
@@ -633,40 +685,38 @@ function getPdfFilename(){
   return d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+'_'+p(d.getHours())+p(d.getMinutes())+p(d.getSeconds())+'_轉檔.pdf';
 }
 
-/* ---------- generatePDF with cover (fill) option ---------- */
+/* ---------- generatePDF with improved iOS orientation detection & 90% cover ---------- */
 async function generatePDF(){
   if (!images.length){ alert('請先加入圖片'); return; }
 
   const pdf = new jsPDF({unit:'pt', format:'a4', orientation: 'portrait'});
   let first = true;
   const coverMode = !!document.getElementById('coverMode').checked;
+  const coverFill = CONFIG.COVER_FILL; // 0.90 => 90% fill in cover mode
 
   for (let idx=0; idx<images.length; idx++){
     const o = images[idx];
 
-    // get image size (prefer jsPDF helper)
-    let props = null;
-    try { props = pdf.getImageProperties(o.fullDataUrl); } catch(e){ props = null; }
-    let iw = (props && props.width) ? props.width : (o.w || 0);
-    let ih = (props && props.height) ? props.height : (o.h || 0);
-
-    if ((!iw || !ih) || isNaN(iw) || isNaN(ih) || iw<=0 || ih<=0){
-      try {
-        const im = await new Promise((resolve, reject) => {
-          const imgEl = new Image();
-          imgEl.onload = () => resolve(imgEl);
-          imgEl.onerror = (err) => reject(err);
-          imgEl.src = o.fullDataUrl;
-        });
-        iw = im.naturalWidth || iw;
-        ih = im.naturalHeight || ih;
-      } catch(e){}
+    // robustly get image pixel dims (works better across iOS/Android/browsers)
+    let iw = 0, ih = 0;
+    try {
+      const dims = await getImageDimensions(o.fullDataUrl);
+      iw = dims.width || iw;
+      ih = dims.height || ih;
+    } catch(e){
+      // fallback to stored values
+      iw = o.w || iw;
+      ih = o.h || ih;
     }
 
+    // fallback defaults
     if (!iw || !ih || isNaN(iw) || isNaN(ih) || iw <= 0 || ih <= 0){
-      iw = 2480; ih = 3508;
+      // best-effort defaults (A4-ish)
+      iw = o.w || 2480;
+      ih = o.h || 3508;
     }
 
+    // Decide page orientation by actual pixel orientation
     const isLandscape = iw > ih;
     const orientation = isLandscape ? 'landscape' : 'portrait';
 
@@ -681,18 +731,19 @@ async function generatePDF(){
     const pageW = pdf.internal.pageSize.getWidth();
     const pageH = pdf.internal.pageSize.getHeight();
 
-    // margins: small base margins
-    const MIN_MARGIN_PX = 2; // 更小的安全邊距 (點)
-    // default fraction margins
+    // MIN_MARGIN small to avoid completely edge-to-edge
+    const MIN_MARGIN_PX = 2;
+
+    // dynamic margin fractions
     let marginFractionX = 0.01;
     let marginFractionY = 0.01;
 
-    // if cover mode, we want to minimize visible whitespace: use even smaller margins
-    if (coverMode){
+    if (coverMode) {
+      // minimal margins in cover mode
       marginFractionX = 0.005;
       marginFractionY = 0.005;
     } else {
-      // slightly adjust per orientation to reduce whitespace (non-cover)
+      // slightly reduce the padding along main axis
       if (isLandscape) marginFractionX = 0.008;
       else marginFractionY = 0.008;
     }
@@ -703,29 +754,34 @@ async function generatePDF(){
     const maxW = pageW - 2 * marginX;
     const maxH = pageH - 2 * marginY;
 
-    // If coverMode: scale so image covers the whole area (may crop). Else: contain (fit inside).
     let drawW, drawH;
+
     if (coverMode) {
-      const scale = Math.max(maxW / iw, maxH / ih); // cover
+      // scale to cover, then multiply by COVER_FILL to leave ~10% visible margin
+      const scaleCover = Math.max(maxW / iw, maxH / ih);
+      const scale = Math.max(scaleCover * coverFill, 0.001);
       drawW = Math.round(iw * scale);
       drawH = Math.round(ih * scale);
     } else {
       const imgAspect = iw / ih;
-      if (imgAspect > (maxW / maxH)) { drawW = maxW; drawH = drawW / imgAspect; }
-      else { drawH = maxH; drawW = drawH * imgAspect; }
+      if (imgAspect > (maxW / maxH)) {
+        drawW = maxW;
+        drawH = drawW / imgAspect;
+      } else {
+        drawH = maxH;
+        drawW = drawH * imgAspect;
+      }
     }
 
-    // Center the image (if drawW > pageW or drawH > pageH, x/y may be negative -> image gets cropped)
     const x = (pageW - drawW) / 2;
     const y = (pageH - drawH) / 2;
 
-    // Safety: ensure numbers are finite
     const X = isFinite(x) ? x : 0;
     const Y = isFinite(y) ? y : 0;
     const DW = isFinite(drawW) ? drawW : maxW;
     const DH = isFinite(drawH) ? drawH : maxH;
 
-    // Add the image
+    // Add the image into PDF
     pdf.addImage(o.fullDataUrl, 'JPEG', X, Y, DW, DH);
   }
 
@@ -736,7 +792,6 @@ async function generatePDF(){
 window.addEventListener('DOMContentLoaded', ()=>{
   updatePreview();
   updateStorageInfoEstimate();
-  // auto enable cover mode on iOS devices (user can toggle)
   const ua = navigator.userAgent || navigator.vendor || '';
   if (/iPhone|iPad|iPod/i.test(ua)) {
     try { document.getElementById('coverMode').checked = true; } catch(e){}
