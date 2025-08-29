@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1.0" />
-<title>文件拍照轉 PDF（四點手動校正）</title>
+<title>文件拍照轉 PDF（四點手動校正 - 含排序與刪除）</title>
 <style>
   body { font-family: Arial, "Noto Sans TC", sans-serif; margin:1.2em; background:#fff; }
   h2 { margin-top:0; }
@@ -550,11 +550,10 @@ function updatePreview(){
 
     const del = document.createElement('button');
     del.className = 'remove-btn';
-    del.textContent = 'X';            // 改成 "X" 字樣（依照要求）
+    del.textContent = 'X';
     del.title = '刪除此張';
     del.onclick = (e) => {
       e.stopPropagation();
-      // 直接刪除，不再跳確認視窗（使用者要求）
       images = images.filter(x => x.id !== o.id);
       updatePreview();
       updateStorageInfoEstimate();
@@ -621,29 +620,64 @@ function getPdfFilename(){
   return d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+'_'+p(d.getHours())+p(d.getMinutes())+p(d.getSeconds())+'_轉檔.pdf';
 }
 
-/* ---------- improved generatePDF (preserve aspect ratio across devices) ---------- */
+/* ---------- improved generatePDF (use jsPDF image properties to avoid iPhone distortion) ---------- */
 async function generatePDF(){
   if (!images.length){ alert('請先加入圖片'); return; }
+
   const pdf = new jsPDF({unit:'pt', format:'a4', orientation: 'portrait'});
   let first = true;
 
   for (let idx=0; idx<images.length; idx++){
     const o = images[idx];
 
-    // load the image to get naturalWidth / naturalHeight to avoid DPR issues
-    const img = await new Promise((resolve, reject) => {
-      const im = new Image();
-      im.onload = () => resolve(im);
-      im.onerror = (e) => reject(e);
-      im.src = o.fullDataUrl;
-    });
+    // try to get image properties via jsPDF helper first (more consistent across browsers)
+    let props = null;
+    try {
+      props = pdf.getImageProperties(o.fullDataUrl);
+    } catch(e){
+      props = null;
+    }
 
-    const iw = img.naturalWidth;
-    const ih = img.naturalHeight;
+    let iw = props && props.width ? props.width : (o.w || 0);
+    let ih = props && props.height ? props.height : (o.h || 0);
+
+    // fallback: try loading HTMLImage and read natural sizes if still missing
+    if ((!iw || !ih) || isNaN(iw) || isNaN(ih) || iw<=0 || ih<=0){
+      try {
+        const im = await new Promise((resolve, reject) => {
+          const imgEl = new Image();
+          imgEl.onload = () => resolve(imgEl);
+          imgEl.onerror = (err) => reject(err);
+          imgEl.src = o.fullDataUrl;
+        });
+        iw = im.naturalWidth || iw;
+        ih = im.naturalHeight || ih;
+      } catch(e){
+        // ignore — will try to use stored w/h below
+      }
+    }
+
+    // If still suspicious (e.g. swapped values), choose the most reasonable by comparing to stored sizes
+    if (o.w && o.h){
+      // prefer the pair that has same orientation as stored sizes
+      const storedLandscape = o.w > o.h;
+      const measuredLandscape = iw > ih;
+      if (storedLandscape !== measuredLandscape){
+        // If orientations mismatch, pick stored dimensions (they were created from our processing pipeline)
+        iw = o.w;
+        ih = o.h;
+      }
+    }
+
+    // final sanity: if any zero, fallback to default A4 full width scaling
+    if (!iw || !ih || isNaN(iw) || isNaN(ih) || iw <= 0 || ih <= 0){
+      // assume A4-ish image
+      iw = 2480; ih = 3508; // approx px at 300dpi for A4 portrait - only to avoid divide by zero
+    }
+
     const isLandscape = iw > ih;
     const orientation = isLandscape ? 'landscape' : 'portrait';
 
-    // create page with correct orientation, then compute available page size for that page
     if (first){
       pdf.deletePage(1);
       pdf.addPage('a4', orientation);
@@ -656,7 +690,6 @@ async function generatePDF(){
     const pageH = pdf.internal.pageSize.getHeight();
 
     // Fit image inside page while preserving aspect ratio.
-    // Use small margin (95% of page) to avoid bleed; adjust if you want edge-to-edge.
     const marginScale = 0.95;
     const maxW = pageW * marginScale;
     const maxH = pageH * marginScale;
@@ -664,11 +697,9 @@ async function generatePDF(){
 
     let drawW, drawH;
     if (imgAspect > (maxW / maxH)) {
-      // image is relatively wider -> fit by width
       drawW = maxW;
       drawH = drawW / imgAspect;
     } else {
-      // fit by height
       drawH = maxH;
       drawW = drawH * imgAspect;
     }
@@ -676,6 +707,7 @@ async function generatePDF(){
     const x = (pageW - drawW) / 2;
     const y = (pageH - drawH) / 2;
 
+    // Use the dataUrl we stored. jsPDF will embed it and draw with provided drawW/drawH (points).
     pdf.addImage(o.fullDataUrl, 'JPEG', x, y, drawW, drawH);
   }
 
