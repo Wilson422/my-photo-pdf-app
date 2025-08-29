@@ -1,113 +1,109 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>文件拍照轉 PDF（裁切 / 濾鏡 / 自動橫直向 / 排序 / 暫存）</title>
-<link rel="manifest" href="manifest.json?v=20250811-4">
-<link rel="icon" href="icon.png?v=20250811-4" type="image/png">
-<link href="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.css" rel="stylesheet"/>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1.0" />
+<title>文件拍照轉 PDF（四點手動校正 - 含排序與刪除）</title>
 <style>
-  body { font-family: Arial,"Noto Sans TC",sans-serif; margin:1.4em; background:#fff; }
+  body { font-family: Arial, "Noto Sans TC", sans-serif; margin:1.2em; background:#fff; }
   h2 { margin-top:0; }
-  .actions { display:flex; flex-wrap:wrap; gap:.55em; align-items:center; margin-bottom:.6em; }
+  .actions { display:flex; flex-wrap:wrap; gap:.5em; align-items:center; margin-bottom:.6em; }
   .actions input[type=file]{ display:none; }
   .actions button {
-    background:#f5f5f5; border:none; padding:.62em 1.05em; font-size:.9em;
-    border-radius:6px; cursor:pointer; line-height:1; letter-spacing:.5px;
+    background:#f5f5f5; border:none; padding:.5em .9em; font-size:.92em;
+    border-radius:8px; cursor:pointer;
   }
-  .actions button:hover { background:#e6e6e6; }
+  .actions button:hover { background:#eaeaea; }
   button.danger { background:#ffecec; color:#b80000; }
-  button.danger:hover { background:#ffd5d5; }
-  #loading { display:none; font-size:.85em; color:#004; font-weight:bold; }
-  #storageInfo { font-size:.8em; color:#666; margin:.25em 0 .8em; }
-  #preview {
-    display:flex; flex-wrap:wrap; gap:10px; margin-top:.8em;
-  }
+  #loading { display:none; font-size:.85em; color:#004; font-weight:bold; margin-left:.6em; }
+
+  #storageInfo { font-size:.88em; color:#666; margin:.4em 0; }
+
+  #preview { display:flex; flex-wrap:wrap; gap:10px; margin-top:.6em; }
+
+  /* thumb */
   .thumb {
-    position:relative; width:128px; border:2px solid transparent; border-radius:8px;
-    background:#fafafa; padding:4px 4px 30px; box-sizing:border-box;
+    position:relative; width:140px; border:2px solid transparent; border-radius:8px;
+    background:#fafafa; padding:8px 8px 34px; box-sizing:border-box;
     user-select:none; -webkit-user-select:none;
     transition:border-color .15s, box-shadow .15s;
   }
   .thumb img {
-    width:100%; height:auto; display:block; border:1px solid #bbb;
-    border-radius:5px; background:#fff; object-fit:contain;
-  }
-  .remove-btn {
-    position:absolute; top:4px; right:4px; background:rgba(255,0,0,.85);
-    color:#fff; border:none; border-radius:4px; font-size:11px;
-    padding:2px 6px; cursor:pointer;
+    width:100%; height:auto; display:block; border:1px solid #ddd;
+    border-radius:6px; background:#fff; object-fit:contain;
   }
   .order-label {
-    position:absolute; top:4px; left:4px;
-    background:#1976d2; color:#fff; font-size:11px;
-    padding:2px 6px; border-radius:4px; font-weight:bold; opacity:.9;
+    position:absolute; top:8px; left:8px;
+    background:#1976d2; color:#fff; font-size:12px;
+    padding:4px 7px; border-radius:6px; font-weight:bold; opacity:.95;
+  }
+  .remove-btn {
+    position:absolute; top:8px; right:8px; background:rgba(255,0,0,.9);
+    color:#fff; border:none; border-radius:6px; font-size:12px;
+    padding:4px 7px; cursor:pointer;
   }
   .move-bar {
-    position:absolute; bottom:2px; left:4px; right:4px;
-    display:flex; justify-content:center; gap:6px;
+    position:absolute; bottom:8px; left:8px; right:8px;
+    display:flex; justify-content:center; gap:8px;
   }
   .move-btn {
-    background:#f2f2f2; border:1px solid #ccc; font-size:11px; padding:4px 6px;
-    border-radius:4px; cursor:pointer;
+    background:#fff; border:1px solid #ccc; font-size:13px; padding:6px 8px;
+    border-radius:6px; cursor:pointer;
   }
-  .move-btn:hover { background:#e5e5e5; }
-  #lineWarningModal { font-size:.95em; }
+  .move-btn:hover { background:#f6f6f6; }
+
+  /* modal */
   #cropperModal {
-    position:fixed; inset:0; background:rgba(0,0,0,.78);
+    position:fixed; inset:0; background:rgba(0,0,0,0.72);
     display:none; align-items:center; justify-content:center; z-index:9999;
-    overscroll-behavior:contain;
   }
   #cropperModal .modal-content {
-    background:#fff; padding:1em .6em; border-radius:12px;
-    max-width:95vw; max-height:82vh; overflow:auto;
-    text-align:center; display:flex; flex-direction:column; align-items:center;
+    background:#fff; width:95vw; max-width:1100px; border-radius:12px;
+    max-height:86vh; overflow:auto; padding:14px;
+    box-sizing:border-box;
+    display:flex; flex-direction:column; align-items:center;
   }
-  #cropperTip { font-size:.85em; color:#555; line-height:1.4; font-weight:bold; }
-  #cropperImage {
-    max-width:82vw; max-height:28vh; margin:.55em 0 .4em;
-    background:#fafafa; border:1px solid #eee; border-radius:6px;
-    touch-action:none;
+  #cropperTip { font-size:.92em; color:#333; margin-bottom:8px; text-align:center; }
+
+  /* wrapper & canvas */
+  .canvas-wrapper { position: relative; display:inline-block; background:#fafafa; border-radius:8px; }
+  canvas#cropperCanvas {
+    display:block;
+    border-radius:6px;
+    background:#fff;
+    touch-action: none; /* prevent scroll gestures interfering */
+    -webkit-user-select:none; user-select:none;
   }
-  #effectSelect {
-    font-size:.9em; padding:.35em .7em; border:1px solid #bbb; border-radius:6px; background:#fafafa;
+
+  /* DOM handles */
+  .handle {
+    position: absolute;
+    width: 28px; height: 28px;
+    margin-left: -14px; margin-top: -14px; /* center on point */
+    background: #1976d2; border-radius:50%;
+    border: 3px solid #fff; box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+    z-index: 60; touch-action:none; cursor:grab;
   }
-  #cropperBtns { margin-top:.9em; display:flex; flex-wrap:wrap; gap:.6em; }
-  #cropperBtns button {
-    background:#f5f5f5; border:none; border-radius:6px; padding:.55em .9em;
-    font-size:.85em; cursor:pointer;
-  }
-  #cropperBtns button:hover { background:#e4e4e4; }
-  .cropper-point {
-    width:30px !important; height:30px !important; background:#1976d2 !important;
-    opacity:.85 !important; border-radius:50% !important;
-  }
+  .handle:active { cursor:grabbing; }
+
+  .controls { margin-top:10px; display:flex; gap:.6em; align-items:center; flex-wrap:wrap; }
+  select { padding:.35em .6em; border-radius:6px; border:1px solid #ccc; background:#fff; }
+  .guide { font-size:.86em; color:#666; margin-top:8px; text-align:center; }
+
+  #cropperBtns { margin-top:12px; display:flex; gap:.6em; }
+  #cropperBtns button { padding:.5em .8em; border-radius:8px; border:none; background:#f5f5f5; cursor:pointer; }
+  #cropperBtns button:hover { background:#eaeaea; }
+
   @media (max-width:560px) {
-    .thumb { width:30vw; max-width:150px; }
-    #cropperImage { max-width:96vw; max-height:24vh; }
-    #storageInfo { font-size:.9em; }
-    .actions button { font-size:.82em; padding:.58em .85em; }
+    .thumb { width:30vw; max-width:150px; padding-bottom:34px; }
+    .handle { width:34px; height:34px; margin-left:-17px; margin-top:-17px; }
+    #cropperModal .modal-content { padding:10px; }
   }
 </style>
-<script src="https://unpkg.com/cropperjs@1.5.13/dist/cropper.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 </head>
 <body>
-<!-- LINE 瀏覽器提示 -->
-<div id="lineWarningModal" style="display:none;position:fixed;z-index:99999;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.7);align-items:center;justify-content:center;">
-  <div style="background:#fff;padding:1.8em 1.2em;border-radius:14px;max-width:90vw;text-align:center;box-shadow:0 6px 24px #0002;">
-    <h3 style="color:#1976d2;margin-top:0;font-size:1.1em;">⚠️ 提示</h3>
-    <div style="font-size:.95em;color:#444;margin:1em 0 1.2em;font-weight:bold;">
-      建議使用預設瀏覽器（Safari/Chrome）開啟；LINE 內建瀏覽器功能可能受限。
-    </div>
-    <button id="openInBrowserBtn" style="font-size:.85em;padding:.65em 1.2em;border-radius:8px;border:none;background:#1976d2;color:#fff;cursor:pointer;">用預設瀏覽器開啟本頁</button>
-    <br><br>
-    <button onclick="document.getElementById('lineWarningModal').style.display='none'" style="color:#1976d2;background:#fff;border:1px solid #1976d2;padding:.45em 1.1em;border-radius:7px;font-size:.8em;cursor:pointer;">關閉</button>
-  </div>
-</div>
-
-<h2>📄 文件拍照轉 PDF</h2>
+<h2>📄 文件拍照轉 PDF（四點手動校正 - 含排序與刪除）</h2>
 
 <div class="actions">
   <input type="file" accept="image/*" capture="environment" id="cameraInput">
@@ -119,342 +115,487 @@
   <span id="loading">處理中...</span>
 </div>
 
-<div id="storageInfo"></div>
+<!-- 顯示目前圖片數量 -->
+<div id="storageInfo">目前圖片數量：0</div>
+
 <div id="preview"></div>
 
 <!-- 裁切 Modal -->
-<div id="cropperModal">
+<div id="cropperModal" role="dialog" aria-modal="true">
   <div class="modal-content">
-    <div id="cropperTip">單指拖移、雙指縮放、調整裁切範圍<br><span style="color:#1976d2;">如偏移請點「重設」</span></div>
-    <img id="cropperImage" alt="待裁切">
-    <div>
-      <label for="effectSelect">效果：</label>
-      <select id="effectSelect">
-        <option value="original">原色</option>
-        <option value="gray">灰階</option>
-        <option value="bw">黑白（高對比）</option>
-      </select>
+    <div id="cropperTip">拖曳四個藍色圓點來對準紙張四角。雙擊畫面可重設。</div>
+
+    <div id="canvasContainer" class="canvas-wrapper" style="touch-action:none;">
+      <canvas id="cropperCanvas" width="800" height="600"></canvas>
+      <!-- handles inserted here as DOM nodes -->
     </div>
+
+    <div class="controls">
+      <label>效果：
+        <select id="effectSelect">
+          <option value="original">原色</option>
+          <option value="gray">灰階</option>
+          <option value="bw">黑白（高對比）</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="guide">如果看不到下方點，請將畫面放大或點選點附近（會自動選取最近的點）。</div>
+
     <div id="cropperBtns">
-      <button id="cropResetBtn" type="button">重設</button>
-      <button id="cropConfirmBtn" type="button">確定裁切</button>
-      <button id="cropCancelBtn" type="button">取消</button>
+      <button id="cropResetBtn">重設</button>
+      <button id="cropConfirmBtn">確定裁切</button>
+      <button id="cropCancelBtn">取消</button>
     </div>
   </div>
 </div>
 
 <script>
+/* Config */
 const CONFIG = {
-  FULL_MAX_DIM: 2000,       
-  PREVIEW_MAX_WIDTH: 420,   
-  PREVIEW_BG: '#ffffff',    
-  IMAGE_QUALITY: 0.9,       
-  DB_NAME: 'doc2pdf_db_v1',
-  DB_VERSION: 1,
-  STORE_IMAGES: 'images',
-  STORE_META: 'meta',
-  SAVE_DEBOUNCE: 500
+  FULL_MAX_DIM: 2000,
+  PREVIEW_MAX_WIDTH: 420,
+  IMAGE_QUALITY: 0.9
 };
-let images = [];
-let cropper = null;
-const { jsPDF } = window.jspdf;
-let db = null;
-let saveTimer = null;
-let useLocalStorageFallback = false;
+let images = []; // 存放已處理的影像物件
+const { jsPDF } = window.jspdf || {};
 
-function uuid(){ return 'xxxxxxxx'.replace(/x/g,()=> (Math.random()*16|0).toString(16))+Date.now().toString(16); }
-function isLineBrowser(){ return navigator.userAgent.toLowerCase().includes('line'); }
-function openExternalBrowser(){
-  const url = location.href.split('#')[0];
-  if (/android/i.test(navigator.userAgent)) {
-    const intentUrl = 'intent://' + url.replace(/^https?:\/\//,'') + '#Intent;scheme=https;package=com.android.chrome;end';
-    location.href = intentUrl;
-  } else {
-    window.open(url,'_blank');
-  }
-}
-function openDB(){
-  return new Promise(res=>{
-    if (!('indexedDB' in window)){
-      useLocalStorageFallback = true; return res();
+/* ---------- Homography & Warp (bilinear) helpers ---------- */
+function solveLinearSystem(A, b) {
+  const n = A.length;
+  const M = new Array(n).fill(0).map((_,i)=>A[i].slice().concat(b[i]));
+  for (let k=0;k<n;k++){
+    let i_max=k;
+    for (let i=k+1;i<n;i++) if (Math.abs(M[i][k]) > Math.abs(M[i_max][k])) i_max=i;
+    if (Math.abs(M[i_max][k]) < 1e-12) return null;
+    [M[k], M[i_max]] = [M[i_max], M[k]];
+    const piv = M[k][k];
+    for (let j=k;j<=n;j++) M[k][j] /= piv;
+    for (let i=0;i<n;i++) if (i!==k) {
+      const f = M[i][k];
+      for (let j=k;j<=n;j++) M[i][j] -= f * M[k][j];
     }
-    const req = indexedDB.open(CONFIG.DB_NAME, CONFIG.DB_VERSION);
-    req.onupgradeneeded = e=>{
-      const db = e.target.result;
-      if (!db.objectStoreNames.contains(CONFIG.STORE_IMAGES))
-        db.createObjectStore(CONFIG.STORE_IMAGES,{keyPath:'id'});
-      if (!db.objectStoreNames.contains(CONFIG.STORE_META))
-        db.createObjectStore(CONFIG.STORE_META,{keyPath:'key'});
-    };
-    req.onsuccess = e=>{ db = e.target.result; res(); };
-    req.onerror = ()=>{ useLocalStorageFallback = true; res(); };
-  });
-}
-function saveToIndexedDB(){
-  if (useLocalStorageFallback) return saveToLocalStorage();
-  if (!db) return;
-  try{
-    const tx = db.transaction([CONFIG.STORE_IMAGES, CONFIG.STORE_META],'readwrite');
-    const sI = tx.objectStore(CONFIG.STORE_IMAGES);
-    const sM = tx.objectStore(CONFIG.STORE_META);
-    sI.clear();
-    images.forEach(o=> sI.put(o));
-    sM.put({key:'order', order: images.map(o=>o.id), ts: Date.now()});
-    tx.oncomplete = ()=> updateStorageInfoEstimate();
-  }catch(e){
-    console.error(e);
-    useLocalStorageFallback = true;
-    saveToLocalStorage();
   }
+  return M.map(row=>row[n]);
 }
-function loadFromIndexedDB(){
-  return new Promise(res=>{
-    if (useLocalStorageFallback || !db){ loadFromLocalStorage(); return res(); }
-    try{
-      const tx = db.transaction([CONFIG.STORE_IMAGES, CONFIG.STORE_META],'readonly');
-      const sI = tx.objectStore(CONFIG.STORE_IMAGES);
-      const sM = tx.objectStore(CONFIG.STORE_META);
-      const orderReq = sM.get('order');
-      const allReq = sI.getAll();
-      tx.oncomplete = ()=>{
-        const order = orderReq.result?.order;
-        let list = allReq.result||[];
-        if (order){
-          const map = new Map(list.map(o=>[o.id,o]));
-          images = order.map(id=>map.get(id)).filter(Boolean);
-          list.forEach(o=>{ if(!order.includes(o.id)) images.push(o); });
-        } else {
-          images = list.sort((a,b)=>(a.ts||0)-(b.ts||0));
+function computeHomography(srcPts, dstPts) {
+  const A=[], b=[];
+  for (let i=0;i<4;i++){
+    const {x,y}=srcPts[i], {x:u,y:v}=dstPts[i];
+    A.push([x,y,1,0,0,0,-u*x,-u*y]); b.push(u);
+    A.push([0,0,0,x,y,1,-v*x,-v*y]); b.push(v);
+  }
+  const h = solveLinearSystem(A,b);
+  if (!h) return null;
+  return [[h[0],h[1],h[2]],[h[3],h[4],h[5]],[h[6],h[7],1]];
+}
+function invert3x3(m){
+  const a=m[0][0],b=m[0][1],c=m[0][2],
+        d=m[1][0],e=m[1][1],f=m[1][2],
+        g=m[2][0],h=m[2][1],i=m[2][2];
+  const A=e*i-f*h, B=c*h-b*i, C=b*f-c*e;
+  const D=f*g-d*i, E=a*i-c*g, F=c*d-a*f;
+  const G=d*h-e*g, H=b*g-a*h, I=a*e-b*d;
+  const det = a*A + b*D + c*G;
+  if (Math.abs(det) < 1e-12) return null;
+  const inv = 1/det;
+  return [[A*inv,B*inv,C*inv],[D*inv,E*inv,F*inv],[G*inv,H*inv,I*inv]];
+}
+function warpImageWithHomography(srcCanvas, H, dstW, dstH){
+  const dst = document.createElement('canvas');
+  dst.width = dstW; dst.height = dstH;
+  const dstCtx = dst.getContext('2d');
+  const srcCtx = srcCanvas.getContext('2d');
+  const srcW = srcCanvas.width, srcH = srcCanvas.height;
+  const srcImgData = srcCtx.getImageData(0,0,srcW,srcH);
+  const srcData = srcImgData.data;
+  const dstImgData = dstCtx.createImageData(dstW, dstH);
+  const dstData = dstImgData.data;
+  const Hinv = invert3x3(H);
+  if (!Hinv){ dstCtx.drawImage(srcCanvas,0,0,dstW,dstH); return dst; }
+  for (let j=0;j<dstH;j++){
+    for (let i=0;i<dstW;i++){
+      const denom = Hinv[2][0]*i + Hinv[2][1]*j + Hinv[2][2];
+      if (denom === 0) continue;
+      const sx = (Hinv[0][0]*i + Hinv[0][1]*j + Hinv[0][2]) / denom;
+      const sy = (Hinv[1][0]*i + Hinv[1][1]*j + Hinv[1][2]) / denom;
+      // bilinear sampling
+      let sample;
+      if (sx<0||sy<0||sx>=srcW||sy>=srcH) {
+        const xi = Math.min(Math.max(Math.round(sx),0), srcW-1);
+        const yi = Math.min(Math.max(Math.round(sy),0), srcH-1);
+        const idx = (yi*srcW + xi)*4;
+        sample = [srcData[idx], srcData[idx+1], srcData[idx+2], srcData[idx+3]];
+      } else {
+        const x0 = Math.floor(sx), y0 = Math.floor(sy), x1 = Math.min(x0+1, srcW-1), y1 = Math.min(y0+1, srcH-1);
+        const dx = sx - x0, dy = sy - y0;
+        const idx00 = (y0*srcW + x0)*4, idx10 = (y0*srcW + x1)*4;
+        const idx01 = (y1*srcW + x0)*4, idx11 = (y1*srcW + x1)*4;
+        sample = [0,0,0,0];
+        for (let c=0;c<4;c++){
+          const v00 = srcData[idx00+c], v10 = srcData[idx10+c], v01 = srcData[idx01+c], v11 = srcData[idx11+c];
+          const v0 = v00*(1-dx) + v10*dx;
+          const v1 = v01*(1-dx) + v11*dx;
+          sample[c] = Math.round(v0*(1-dy) + v1*dy);
         }
-        updatePreview();
-        updateStorageInfoEstimate();
-        res();
-      };
-      tx.onerror = ()=>{ loadFromLocalStorage(); res(); };
-    }catch(e){ loadFromLocalStorage(); res(); }
-  });
-}
-function debounceSave(){
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(()=>{
-    useLocalStorageFallback ? saveToLocalStorage() : saveToIndexedDB();
-  }, CONFIG.SAVE_DEBOUNCE);
-}
-function saveToLocalStorage(){
-  try{
-    localStorage.setItem('doc2pdf_backup_v1', JSON.stringify({images, ts:Date.now()}));
-    updateStorageInfoEstimate();
-  }catch(e){ console.error('localStorage 儲存失敗', e); }
-}
-function loadFromLocalStorage(){
-  try{
-    const raw = localStorage.getItem('doc2pdf_backup_v1');
-    if (!raw) return;
-    const data = JSON.parse(raw);
-    if (Array.isArray(data.images)){ images = data.images; updatePreview(); updateStorageInfoEstimate(); }
-  }catch(e){ console.warn(e); }
-}
-function clearAllImages(){
-  if (!confirm('確定刪除全部圖片？')) return;
-  images = [];
-  updatePreview();
-  debounceSave();
-}
-function createResizedCanvas(img,maxDim){
-  const r = img.width / img.height;
-  let w=img.width,h=img.height;
-  if (w>h){ if (w>maxDim){ w=maxDim; h=Math.round(w/r);} }
-  else { if (h>maxDim){ h=maxDim; w=Math.round(h*r);} }
-  const c=document.createElement('canvas'); c.width=w; c.height=h;
-  const ctx=c.getContext('2d'); ctx.fillStyle=CONFIG.PREVIEW_BG; ctx.fillRect(0,0,w,h);
-  ctx.drawImage(img,0,0,w,h);
-  return c;
-}
-function applyEffect(canvas,effect){
-  if (effect==='gray'){
-    const ctx=canvas.getContext('2d'); const d=ctx.getImageData(0,0,canvas.width, canvas.height);
-    for (let i=0;i<d.data.length;i+=4){
-      const r=d.data[i],g=d.data[i+1],b=d.data[i+2];
-      const gval=0.299*r+0.587*g+0.114*b;
-      d.data[i]=d.data[i+1]=d.data[i+2]=gval;
+      }
+      const dstIdx = (j*dstW + i)*4;
+      dstData[dstIdx]   = sample[0];
+      dstData[dstIdx+1] = sample[1];
+      dstData[dstIdx+2] = sample[2];
+      dstData[dstIdx+3] = sample[3];
     }
-    ctx.putImageData(d,0,0);
-  } else if (effect==='bw'){
-    const ctx=canvas.getContext('2d'); const d=ctx.getImageData(0,0,canvas.width, canvas.height);
-    const hist=new Array(256).fill(0);
-    for (let i=0;i<d.data.length;i+=4){
-      const g=0.299*d.data[i]+0.587*d.data[i+1]+0.114*d.data[i+2];
-      d.data[i]=d.data[i+1]=d.data[i+2]=g; hist[Math.round(g)]++;
-    }
-    let total=canvas.width*canvas.height,sum=0;
-    for (let t=0;t<256;t++) sum+=t*hist[t];
+  }
+  dstCtx.putImageData(dstImgData, 0, 0);
+  return dst;
+}
+function applyEffect(canvas, effect){
+  if (!canvas || effect === 'original') return;
+  const ctx = canvas.getContext('2d');
+  const imgd = ctx.getImageData(0,0,canvas.width, canvas.height);
+  const d = imgd.data;
+  for (let i=0;i<d.length;i+=4){
+    const r=d[i], g=d[i+1], b=d[i+2];
+    const lum = 0.299*r + 0.587*g + 0.114*b;
+    d[i]=d[i+1]=d[i+2]=lum;
+  }
+  if (effect === 'bw'){
+    const hist = new Array(256).fill(0);
+    for (let i=0;i<d.length;i+=4) hist[Math.round(d[i])]++;
+    let total = canvas.width*canvas.height, sum=0;
+    for (let t=0;t<256;t++) sum += t*hist[t];
     let wB=0,sumB=0,varMax=0,th=0;
     for (let t=0;t<256;t++){
-      wB+=hist[t]; if(!wB)continue;
-      const wF=total-wB; if(!wF)break;
-      sumB+=t*hist[t];
-      const mB=sumB/wB; const mF=(sum-sumB)/wF;
-      const v=wB*wF*(mB-mF)*(mB-mF);
-      if (v>varMax){ varMax=v; th=t; }
+      wB += hist[t];
+      if (!wB) continue;
+      const wF = total - wB;
+      if (!wF) break;
+      sumB += t*hist[t];
+      const mB = sumB/wB;
+      const mF = (sum - sumB)/wF;
+      const v = wB*wF*(mB-mF)*(mB-mF);
+      if (v > varMax){ varMax=v; th=t; }
     }
-    for (let i=0;i<d.data.length;i+=4){
-      const v=d.data[i]>th?255:0;
-      d.data[i]=d.data[i+1]=d.data[i+2]=v;
+    for (let i=0;i<d.length;i+=4){
+      const v = d[i] > th ? 255 : 0;
+      d[i]=d[i+1]=d[i+2]=v;
     }
-    ctx.putImageData(d,0,0);
   }
+  ctx.putImageData(imgd, 0, 0);
 }
-function processCroppedCanvas(croppedCanvas,effect){
-  return new Promise(resolve=>{
-    const temp = new Image();
-    temp.onload = ()=>{
-      const fullCanvas = createResizedCanvas(temp, CONFIG.FULL_MAX_DIM);
-      applyEffect(fullCanvas, effect);
-      const fullDataUrl = fullCanvas.toDataURL('image/jpeg', CONFIG.IMAGE_QUALITY);
-      const previewCanvas = createResizedCanvas(fullCanvas, CONFIG.PREVIEW_MAX_WIDTH);
-      const previewDataUrl = previewCanvas.toDataURL('image/jpeg', 0.75);
-      resolve({
-        fullDataUrl,
-        previewDataUrl,
-        w: fullCanvas.width,
-        h: fullCanvas.height
-      });
-    };
-    temp.src = croppedCanvas.toDataURL('image/jpeg', 0.98);
-  });
-}
+
+/* ---------- openCropper (DOM handles) ---------- */
 function openCropper(dataUrl){
-  return new Promise((resolve,reject)=>{
-    const modal=document.getElementById('cropperModal');
-    const imgEl=document.getElementById('cropperImage');
-    modal.style.display='flex';
-    imgEl.src=dataUrl;
-    let instance=null;
-    function cleanup(){
-      if (instance) instance.destroy();
-      modal.style.display='none';
-      window.removeEventListener('resize', setModalContentHeight);
+  return new Promise((resolve, reject) => {
+    const modal = document.getElementById('cropperModal');
+    const canvas = document.getElementById('cropperCanvas');
+    const wrapper = document.getElementById('canvasContainer');
+    let ctx = canvas.getContext('2d');
+
+    modal.style.display = 'flex';
+
+    const img = new Image();
+    let imgDraw = { dx:0, dy:0, dw:0, dh:0, scale:1 }; // CSS px
+    let handles = [];
+    let handleEls = [];
+
+    function ensureHandles(){
+      wrapper.style.position = 'relative';
+      for (let i=0;i<4;i++){
+        if (!handleEls[i]){
+          const el = document.createElement('div');
+          el.className = 'handle';
+          el.dataset.idx = i;
+          el.addEventListener('pointerdown', (ev) => { ev.preventDefault(); });
+          wrapper.appendChild(el);
+          handleEls[i] = el;
+        }
+      }
     }
-    imgEl.onload=()=>{
-      setModalContentHeight();
-      window.addEventListener('resize', setModalContentHeight);
-      instance=new Cropper(imgEl,{
-        viewMode:1, aspectRatio:NaN, movable:true, zoomable:true,
-        rotatable:false, scalable:false, autoCropArea:1,
-        toggleDragModeOnDblclick:false, minCropBoxWidth:50, minCropBoxHeight:50
-      });
+    function positionHandleEls(){
+      for (let i=0;i<4;i++){
+        const el = handleEls[i];
+        const px = imgDraw.dx + handles[i].u * imgDraw.dw;
+        const py = imgDraw.dy + handles[i].v * imgDraw.dh;
+        el.style.left = px + 'px';
+        el.style.top  = py + 'px';
+      }
+    }
+    function drawCanvas(){
+      ctx.save();
+      ctx.setTransform(1,0,0,1,0,0);
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      ctx.restore();
+      ctx.drawImage(img, 0,0, img.width, img.height, imgDraw.dx, imgDraw.dy, imgDraw.dw, imgDraw.dh);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = 'rgba(25,118,210,0.95)';
+      ctx.beginPath();
+      for (let i=0;i<4;i++){
+        const p = { x: imgDraw.dx + handles[i].u * imgDraw.dw, y: imgDraw.dy + handles[i].v * imgDraw.dh };
+        if (i===0) ctx.moveTo(p.x, p.y);
+        else ctx.lineTo(p.x, p.y);
+      }
+      ctx.closePath();
+      ctx.stroke();
+    }
+    function resetHandles(){
+      const inset = 0.06;
+      handles = [
+        { u: inset, v: inset },
+        { u: 1 - inset, v: inset },
+        { u: 1 - inset, v: 1 - inset },
+        { u: inset, v: 1 - inset }
+      ];
+      if (handleEls.length) positionHandleEls();
+      drawCanvas();
+    }
+
+    // wrapper-level pointer handling
+    let draggingIdx = -1;
+    function wrapperPointerDown(e){
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      let bestIdx = -1, bestD = Infinity;
+      for (let i=0;i<4;i++){
+        const hx = imgDraw.dx + handles[i].u * imgDraw.dw;
+        const hy = imgDraw.dy + handles[i].v * imgDraw.dh;
+        const d = Math.hypot(hx - x, hy - y);
+        if (d < bestD) { bestD = d; bestIdx = i; }
+      }
+      const HIT_RADIUS = Math.max(28, Math.min(48, Math.round(Math.min(imgDraw.dw, imgDraw.dh) * 0.06)));
+      if (bestD <= HIT_RADIUS){
+        draggingIdx = bestIdx;
+        try { wrapper.setPointerCapture && wrapper.setPointerCapture(e.pointerId); } catch(_) {}
+        window.addEventListener('pointermove', wrapperPointerMove, { passive: false });
+        window.addEventListener('pointerup', wrapperPointerUp, { passive: false });
+        e.preventDefault();
+      }
+    }
+    function wrapperPointerMove(e){
+      if (draggingIdx === -1) return;
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      const u = (x - imgDraw.dx) / imgDraw.dw;
+      const v = (y - imgDraw.dy) / imgDraw.dh;
+      handles[draggingIdx].u = Math.max(0, Math.min(1, u));
+      handles[draggingIdx].v = Math.max(0, Math.min(1, v));
+      positionHandleEls();
+      drawCanvas();
+      e.preventDefault();
+    }
+    function wrapperPointerUp(e){
+      draggingIdx = -1;
+      window.removeEventListener('pointermove', wrapperPointerMove);
+      window.removeEventListener('pointerup', wrapperPointerUp);
+      try { wrapper.releasePointerCapture && wrapper.releasePointerCapture(e.pointerId); } catch(_) {}
+    }
+
+    let lastTap = 0;
+    function onCanvasPointerDown(ev){
+      const now = Date.now();
+      if (now - lastTap < 300) resetHandles();
+      lastTap = now;
+    }
+
+    document.getElementById('cropResetBtn').onclick = () => { resetHandles(); };
+    document.getElementById('cropCancelBtn').onclick = () => { cleanupReject('cancel'); };
+
+    function cleanupReject(reason){
+      modal.style.display = 'none';
+      handleEls.forEach(el => { try { if (el.parentNode) el.parentNode.removeChild(el); } catch(_){} });
+      handleEls = [];
+      wrapper.removeEventListener('pointerdown', wrapperPointerDown);
+      canvas.removeEventListener('pointerdown', onCanvasPointerDown);
+      resolve(Promise.reject(reason));
+    }
+
+    img.onload = () => {
+      const winW = Math.min(window.innerWidth * 0.92, 1200);
+      const winH = Math.min(window.innerHeight * 0.7, 1100);
+      const fitScale = Math.min(winW / img.width, winH / img.height, 1);
+      const displayW = Math.max(320, Math.round(img.width * fitScale));
+      const displayH = Math.max(240, Math.round(img.height * fitScale));
+      const dpr = window.devicePixelRatio || 1;
+      canvas.style.width  = displayW + 'px';
+      canvas.style.height = displayH + 'px';
+      canvas.width  = Math.round(displayW * dpr);
+      canvas.height = Math.round(displayH * dpr);
+      ctx = canvas.getContext('2d');
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const scale = Math.min(displayW / img.width, displayH / img.height);
+      const dw = Math.round(img.width * scale);
+      const dh = Math.round(img.height * scale);
+      const dx = Math.round((displayW - dw) / 2);
+      const dy = Math.round((displayH - dh) / 2);
+      imgDraw = { dx, dy, dw, dh, scale };
+      wrapper.style.width = canvas.style.width;
+      wrapper.style.height = canvas.style.height;
+      wrapper.style.display = 'inline-block';
+      wrapper.style.position = 'relative';
+      wrapper.style.touchAction = 'none';
+      ensureHandles();
+      resetHandles();
+      positionHandleEls();
+      drawCanvas();
+      wrapper.addEventListener('pointerdown', wrapperPointerDown, { passive: false });
+      canvas.addEventListener('pointerdown', onCanvasPointerDown, { passive: false });
     };
-    document.getElementById('cropResetBtn').onclick=()=> instance && instance.reset();
-    document.getElementById('cropCancelBtn').onclick=()=>{ cleanup(); reject('cancel'); };
-    document.getElementById('cropConfirmBtn').onclick=()=>{
-      if (!instance) return;
-      const effect=document.getElementById('effectSelect').value;
-      const croppedCanvas=instance.getCroppedCanvas();
-      cleanup();
-      resolve({croppedCanvas,effect});
+    img.onerror = () => { modal.style.display = 'none'; reject('img_load_error'); };
+    img.src = dataUrl;
+
+    document.getElementById('cropConfirmBtn').onclick = async () => {
+      const srcPts = handles.map(h => ({ x: Math.round(h.u * img.width), y: Math.round(h.v * img.height) }));
+      function dist(a,b){ return Math.hypot(a.x-b.x,a.y-b.y); }
+      const wA = dist(srcPts[2], srcPts[3]), wB = dist(srcPts[1], srcPts[0]);
+      const hA = dist(srcPts[1], srcPts[2]), hB = dist(srcPts[0], srcPts[3]);
+      const dstW = Math.min(Math.round(Math.max(wA,wB)), CONFIG.FULL_MAX_DIM);
+      const dstH = Math.min(Math.round(Math.max(hA,hB)), CONFIG.FULL_MAX_DIM);
+      const dstPts = [{x:0,y:0},{x:dstW-1,y:0},{x:dstW-1,y:dstH-1},{x:0,y:dstH-1}];
+      const H = computeHomography(srcPts, dstPts);
+      if (!H) { alert('計算失敗，請調整四點後重試'); return; }
+      const srcCanvas = document.createElement('canvas');
+      srcCanvas.width = img.width; srcCanvas.height = img.height;
+      const sctx = srcCanvas.getContext('2d');
+      sctx.drawImage(img, 0,0);
+      const warpCanvas = warpImageWithHomography(srcCanvas, H, dstW, dstH);
+      const effect = document.getElementById('effectSelect').value;
+      applyEffect(warpCanvas, effect);
+      handleEls.forEach(el => { try { if (el.parentNode) el.parentNode.removeChild(el); } catch(_){} });
+      handleEls = [];
+      wrapper.removeEventListener('pointerdown', wrapperPointerDown);
+      canvas.removeEventListener('pointerdown', onCanvasPointerDown);
+      modal.style.display = 'none';
+      resolve({ croppedCanvas: warpCanvas, effect });
     };
   });
 }
-function setModalContentHeight(){
-  const c=document.querySelector('#cropperModal .modal-content');
-  if(!c)return;
-  c.style.maxHeight=(window.innerHeight-30)+'px';
+
+/* ---------- processing pipeline ---------- */
+function createResizedCanvas(img, maxDim){
+  const r = img.width / img.height;
+  let w = img.width, h = img.height;
+  if (w > h) { if (w > maxDim){ w = maxDim; h = Math.round(w / r); } }
+  else { if (h > maxDim){ h = maxDim; w = Math.round(h * r); } }
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0,0,w,h);
+  ctx.drawImage(img, 0,0, img.width, img.height, 0,0, w,h);
+  return c;
 }
+function processCroppedCanvas(croppedCanvas, effect){
+  return new Promise(resolve=>{
+    const tmp = new Image();
+    tmp.onload = () => {
+      const full = createResizedCanvas(tmp, CONFIG.FULL_MAX_DIM);
+      applyEffect(full, effect);
+      const fullDataUrl = full.toDataURL('image/jpeg', CONFIG.IMAGE_QUALITY);
+      const preview = createResizedCanvas(tmp, CONFIG.PREVIEW_MAX_WIDTH);
+      const previewDataUrl = preview.toDataURL('image/jpeg', 0.75);
+      resolve({ fullDataUrl, previewDataUrl, w: full.width, h: full.height });
+    };
+    tmp.src = croppedCanvas.toDataURL('image/jpeg', 0.98);
+  });
+}
+
+/* ---------- file handling & UI glue ---------- */
 function handleFiles(fileList){
-  if (!fileList.length) return;
-  const loading=document.getElementById('loading');
-  loading.style.display='';
-  let idx=0;
-  function next(){
-    if (idx>=fileList.length){
-      loading.style.display='none'; return;
-    }
-    const f=fileList[idx];
-    if (!f.type.startsWith('image/')){ idx++; next(); return; }
-    const reader=new FileReader();
-    reader.onload=async e=>{
-      try{
-        const {croppedCanvas,effect}=await openCropper(e.target.result);
-        const processed=await processCroppedCanvas(croppedCanvas,effect);
+  if (!fileList || !fileList.length) return;
+  document.getElementById('loading').style.display = '';
+  let idx = 0;
+  (function next(){
+    if (idx >= fileList.length) { document.getElementById('loading').style.display = 'none'; return; }
+    const f = fileList[idx++];
+    if (!f.type.startsWith('image/')) return next();
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const { croppedCanvas, effect } = await openCropper(e.target.result);
+        const processed = await processCroppedCanvas(croppedCanvas, effect);
         images.push({
-          id: uuid(),
+          id: Date.now().toString(36) + Math.random().toString(36).slice(2,9),
           fullDataUrl: processed.fullDataUrl,
           previewDataUrl: processed.previewDataUrl,
-          w: processed.w,
-          h: processed.h,
-          ts: Date.now()
+          w: processed.w, h: processed.h, ts: Date.now()
         });
         updatePreview();
-        debounceSave();
-      }catch(err){ if(err!=='cancel') console.warn(err); }
-      finally { idx++; next(); }
+        updateStorageInfoEstimate();
+      } catch(err){
+        if (err !== 'cancel') console.warn(err);
+      } finally {
+        next();
+      }
     };
     reader.readAsDataURL(f);
-  }
-  next();
+  })();
 }
-function triggerCamera(){ document.getElementById('cameraInput').click(); }
-function triggerFile(){ document.getElementById('fileInput').click(); }
-document.getElementById('cameraInput').addEventListener('change',e=>{
-  handleFiles(e.target.files); e.target.value='';
-});
-document.getElementById('fileInput').addEventListener('change',e=>{
-  handleFiles(e.target.files); e.target.value='';
-});
-function updatePreview(){
-  const container=document.getElementById('preview');
-  container.innerHTML='';
-  images.forEach((o,idx)=>{
-    const div=document.createElement('div');
-    div.className='thumb';
-    div.dataset.id=o.id;
+document.getElementById('cameraInput').addEventListener('change', e => { handleFiles(e.target.files); e.target.value=''; });
+document.getElementById('fileInput').addEventListener('change', e => { handleFiles(e.target.files); e.target.value=''; });
 
-    const order=document.createElement('div');
-    order.className='order-label';
-    order.textContent=idx+1;
+/* ---------- preview, sorting, delete, storage info ---------- */
+function updatePreview(){
+  const container = document.getElementById('preview');
+  container.innerHTML = '';
+  images.forEach((o, idx) => {
+    const div = document.createElement('div');
+    div.className = 'thumb';
+    div.dataset.id = o.id;
+
+    const order = document.createElement('div');
+    order.className = 'order-label';
+    order.textContent = idx + 1;
     div.appendChild(order);
 
-    const img=document.createElement('img');
-    img.src=o.previewDataUrl;
-    img.alt='第 '+(idx+1)+' 張';
-    img.onerror=()=>{ img.src='icon.png?v=20250811-4'; };
+    const img = document.createElement('img');
+    img.src = o.previewDataUrl;
+    img.alt = '第 ' + (idx+1) + ' 張';
     div.appendChild(img);
 
-    const del=document.createElement('button');
-    del.className='remove-btn';
-    del.textContent='✖';
-    del.title='刪除';
-    del.onclick=()=>{
-      images = images.filter(x=>x.id!==o.id);
+    const del = document.createElement('button');
+    del.className = 'remove-btn';
+    del.textContent = 'X';            // 改成 "X" 字樣（依照要求）
+    del.title = '刪除此張';
+    del.onclick = (e) => {
+      e.stopPropagation();
+      // 直接刪除，不再跳確認視窗（使用者要求）
+      images = images.filter(x => x.id !== o.id);
       updatePreview();
-      debounceSave();
+      updateStorageInfoEstimate();
     };
     div.appendChild(del);
 
-    const bar=document.createElement('div');
-    bar.className='move-bar';
+    const bar = document.createElement('div');
+    bar.className = 'move-bar';
 
-    const up=document.createElement('button');
-    up.className='move-btn';
-    up.textContent='↑';
-    up.title='上移';
-    up.onclick=(e)=>{
+    const up = document.createElement('button');
+    up.className = 'move-btn';
+    up.textContent = '↑';
+    up.title = '上移';
+    up.onclick = (e) => {
       e.stopPropagation();
-      if (idx>0){
-        const tmp=images[idx]; images[idx]=images[idx-1]; images[idx-1]=tmp;
-        updatePreview(); debounceSave();
+      const i = images.findIndex(x => x.id === o.id);
+      if (i > 0) {
+        const tmp = images[i-1];
+        images[i-1] = images[i];
+        images[i] = tmp;
+        updatePreview();
+        updateStorageInfoEstimate();
       }
     };
 
-    const down=document.createElement('button');
-    down.className='move-btn';
-    down.textContent='↓';
-    down.title='下移';
-    down.onclick=(e)=>{
+    const down = document.createElement('button');
+    down.className = 'move-btn';
+    down.textContent = '↓';
+    down.title = '下移';
+    down.onclick = (e) => {
       e.stopPropagation();
-      if (idx<images.length-1){
-        const tmp=images[idx]; images[idx]=images[idx+1]; images[idx+1]=tmp;
-        updatePreview(); debounceSave();
+      const i = images.findIndex(x => x.id === o.id);
+      if (i >= 0 && i < images.length - 1) {
+        const tmp = images[i+1];
+        images[i+1] = images[i];
+        images[i] = tmp;
+        updatePreview();
+        updateStorageInfoEstimate();
       }
     };
 
@@ -466,56 +607,42 @@ function updatePreview(){
   });
   updateStorageInfoEstimate();
 }
+
+function updateStorageInfoEstimate(){
+  const el = document.getElementById('storageInfo');
+  if (!el) return;
+  el.textContent = `目前圖片數量：${images.length}`;
+}
+
+/* ---------- simple UI helpers ---------- */
+function clearAllImages(){ if (confirm('確定刪除全部圖片？')) { images = []; updatePreview(); updateStorageInfoEstimate(); } }
+function triggerCamera(){ document.getElementById('cameraInput').click(); }
+function triggerFile(){ document.getElementById('fileInput').click(); }
+
 function getPdfFilename(){
   const d=new Date(), p=n=>String(n).padStart(2,'0');
-  return d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+'_'+
-         p(d.getHours())+p(d.getMinutes())+p(d.getSeconds())+'_轉檔.pdf';
+  return d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+'_'+p(d.getHours())+p(d.getMinutes())+p(d.getSeconds())+'_轉檔.pdf';
 }
 function generatePDF(){
   if (!images.length){ alert('請先加入圖片'); return; }
-  const pdf=new jsPDF({unit:'pt',format:'a4',orientation:'portrait'});
+  const pdf = new jsPDF({unit:'pt', format:'a4', orientation: 'portrait'});
   let first=true;
   images.forEach(o=>{
     const isLandscape = o.w > o.h;
-    if (first){
-      pdf.deletePage(1);
-      pdf.addPage('a4', isLandscape?'landscape':'portrait');
-      first=false;
-    } else {
-      pdf.addPage('a4', isLandscape?'landscape':'portrait');
-    }
-    const pdfW=pdf.internal.pageSize.getWidth();
-    const pdfH=pdf.internal.pageSize.getHeight();
-    const ratio=Math.min(pdfW/o.w, pdfH/o.h);
-    const w=o.w*ratio, h=o.h*ratio;
-    const x=(pdfW-w)/2, y=(pdfH-h)/2;
-    pdf.addImage(o.fullDataUrl,'JPEG',x,y,w,h);
+    if (first){ pdf.deletePage(1); pdf.addPage('a4', isLandscape ? 'landscape' : 'portrait'); first=false; }
+    else pdf.addPage('a4', isLandscape ? 'landscape' : 'portrait');
+    const pdfW = pdf.internal.pageSize.getWidth();
+    const pdfH = pdf.internal.pageSize.getHeight();
+    const ratio = Math.min(pdfW / o.w, pdfH / o.h);
+    const w = o.w * ratio, h = o.h * ratio;
+    const x = (pdfW - w) / 2, y = (pdfH - h) / 2;
+    pdf.addImage(o.fullDataUrl, 'JPEG', x, y, w, h);
   });
   pdf.save(getPdfFilename());
 }
-function estimateSize(){
-  let total=0;
-  images.forEach(o=>{
-    total += (o.fullDataUrl?.length||0) + (o.previewDataUrl?.length||0);
-  });
-  return Math.round(total * 0.75);
-}
-function updateStorageInfoEstimate(){
-  const el=document.getElementById('storageInfo');
-  el.textContent=`目前圖片數量：${images.length}`;
-}
-window.addEventListener('DOMContentLoaded', async ()=>{
-  if (isLineBrowser()){
-    document.getElementById('lineWarningModal').style.display='flex';
-    document.getElementById('openInBrowserBtn').onclick=openExternalBrowser;
-  }
-  await openDB();
-  await loadFromIndexedDB();
-  updatePreview();
-});
-if ('serviceWorker' in navigator){
-  navigator.serviceWorker.register('service-worker.js?v=20250811-4').catch(()=>{});
-}
+
+/* init */
+window.addEventListener('DOMContentLoaded', ()=>{ updatePreview(); updateStorageInfoEstimate(); });
 </script>
 </body>
 </html>
