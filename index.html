@@ -84,6 +84,7 @@
     border: 3px solid #fff; box-shadow: 0 2px 6px rgba(0,0,0,0.35);
     z-index: 60; touch-action:none; cursor:grab;
   }
+  .handle.mid { background:#03a9f4; } /* 可視化中間點顏色不同（可選） */
   .handle:active { cursor:grabbing; }
 
   .controls { margin-top:10px; display:flex; gap:.6em; align-items:center; flex-wrap:wrap; }
@@ -123,7 +124,7 @@
 <!-- 裁切 Modal -->
 <div id="cropperModal" role="dialog" aria-modal="true">
   <div class="modal-content">
-    <div id="cropperTip">拖曳四個藍色圓點來對準紙張四角。雙擊畫面可重設。</div>
+    <div id="cropperTip">拖曳四個藍色圓點來對準紙張四角，或拖曳邊中間的藍點可將該邊「平行」放大/縮小。雙擊畫面可重設。</div>
 
     <div id="canvasContainer" class="canvas-wrapper" style="touch-action:none;">
       <canvas id="cropperCanvas" width="800" height="600"></canvas>
@@ -381,7 +382,7 @@ function normalizeDataUrlByOrientation(dataUrl, orientation){
   });
 }
 
-/* ---------- openCropper (DOM handles) ---------- */
+/* ---------- openCropper (DOM handles) with mid-edge handles ---------- */
 function openCropper(dataUrl){
   return new Promise((resolve, reject) => {
     const modal = document.getElementById('cropperModal');
@@ -393,27 +394,45 @@ function openCropper(dataUrl){
 
     const img = new Image();
     let imgDraw = { dx:0, dy:0, dw:0, dh:0, scale:1 }; // CSS px
-    let handles = [];
-    let handleEls = [];
+    let handles = [];       // 4 corner handles: {u,v} normalized in image-pixel coords
+    let handleEls = [];     // DOM nodes for 8 handles (4 corners + 4 mid-edge)
+    let dragState = null;   // store drag info when dragging
 
     function ensureHandles(){
       wrapper.style.position = 'relative';
-      for (let i=0;i<4;i++){
+      // create 8 handles: 0-3 corners, 4-7 mid-edge between corner i and i+1
+      for (let i=0;i<8;i++){
         if (!handleEls[i]){
           const el = document.createElement('div');
-          el.className = 'handle';
+          el.className = 'handle' + (i>=4 ? ' mid' : '');
           el.dataset.idx = i;
+          // prevent default pointerdown to avoid scrolling
           el.addEventListener('pointerdown', (ev) => { ev.preventDefault(); });
           wrapper.appendChild(el);
           handleEls[i] = el;
         }
       }
     }
+    function computeMid(u1,v1,u2,v2){
+      return { u: (u1+u2)/2, v: (v1+v2)/2 };
+    }
     function positionHandleEls(){
+      // corners
       for (let i=0;i<4;i++){
         const el = handleEls[i];
         const px = imgDraw.dx + handles[i].u * imgDraw.dw;
         const py = imgDraw.dy + handles[i].v * imgDraw.dh;
+        el.style.left = px + 'px';
+        el.style.top  = py + 'px';
+      }
+      // mids
+      for (let i=0;i<4;i++){
+        const a = i;
+        const b = (i+1)%4;
+        const mid = computeMid(handles[a].u, handles[a].v, handles[b].u, handles[b].v);
+        const el = handleEls[4+i];
+        const px = imgDraw.dx + mid.u * imgDraw.dw;
+        const py = imgDraw.dy + mid.v * imgDraw.dh;
         el.style.left = px + 'px';
         el.style.top  = py + 'px';
       }
@@ -424,6 +443,7 @@ function openCropper(dataUrl){
       ctx.clearRect(0,0,canvas.width,canvas.height);
       ctx.restore();
       ctx.drawImage(img, 0,0, img.width, img.height, imgDraw.dx, imgDraw.dy, imgDraw.dw, imgDraw.dh);
+      // draw polygon
       ctx.lineWidth = 2;
       ctx.strokeStyle = 'rgba(25,118,210,0.95)';
       ctx.beginPath();
@@ -447,46 +467,106 @@ function openCropper(dataUrl){
       drawCanvas();
     }
 
-    // wrapper-level pointer handling
-    let draggingIdx = -1;
+    // wrapper-level pointer handling with support for corner and mid-edge dragging
     function wrapperPointerDown(e){
       const rect = canvas.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
       let bestIdx = -1, bestD = Infinity;
-      for (let i=0;i<4;i++){
-        const hx = imgDraw.dx + handles[i].u * imgDraw.dw;
-        const hy = imgDraw.dy + handles[i].v * imgDraw.dh;
+      // compute distances to all 8 handles (we present mid handles as positions too)
+      for (let i=0;i<8;i++){
+        let hx, hy;
+        if (i < 4){
+          hx = imgDraw.dx + handles[i].u * imgDraw.dw;
+          hy = imgDraw.dy + handles[i].v * imgDraw.dh;
+        } else {
+          const a = i - 4;
+          const b = (a + 1) % 4;
+          const mid = computeMid(handles[a].u, handles[a].v, handles[b].u, handles[b].v);
+          hx = imgDraw.dx + mid.u * imgDraw.dw;
+          hy = imgDraw.dy + mid.v * imgDraw.dh;
+        }
         const d = Math.hypot(hx - x, hy - y);
         if (d < bestD) { bestD = d; bestIdx = i; }
       }
       const HIT_RADIUS = Math.max(28, Math.min(48, Math.round(Math.min(imgDraw.dw, imgDraw.dh) * 0.06)));
       if (bestD <= HIT_RADIUS){
-        draggingIdx = bestIdx;
+        // start dragging
         try { wrapper.setPointerCapture && wrapper.setPointerCapture(e.pointerId); } catch(_) {}
+        dragState = {
+          idx: bestIdx,
+          pointerStart: { x: e.clientX, y: e.clientY },
+          // copy corner handle pixel positions for robust drag math
+          startCornersPx: handles.map(h => ({
+            x: imgDraw.dx + h.u * imgDraw.dw,
+            y: imgDraw.dy + h.v * imgDraw.dh
+          }))
+        };
+        if (bestIdx >= 4){
+          // mid-edge drag: compute normalized edge normal (in CSS pixels)
+          const a = bestIdx - 4;
+          const b = (a + 1) % 4;
+          const ax = dragState.startCornersPx[a].x, ay = dragState.startCornersPx[a].y;
+          const bx = dragState.startCornersPx[b].x, by = dragState.startCornersPx[b].y;
+          // edge vector from a->b
+          const ex = bx - ax, ey = by - ay;
+          // normal (perp)
+          let nx = -ey, ny = ex;
+          const norm = Math.hypot(nx, ny) || 1;
+          nx /= norm; ny /= norm;
+          dragState.edge = { a, b, nx, ny };
+        }
         window.addEventListener('pointermove', wrapperPointerMove, { passive: false });
         window.addEventListener('pointerup', wrapperPointerUp, { passive: false });
         e.preventDefault();
       }
     }
     function wrapperPointerMove(e){
-      if (draggingIdx === -1) return;
+      if (!dragState) return;
       const rect = canvas.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
-      const u = (x - imgDraw.dx) / imgDraw.dw;
-      const v = (y - imgDraw.dy) / imgDraw.dh;
-      handles[draggingIdx].u = Math.max(0, Math.min(1, u));
-      handles[draggingIdx].v = Math.max(0, Math.min(1, v));
-      positionHandleEls();
-      drawCanvas();
+      const px = e.clientX - rect.left;
+      const py = e.clientY - rect.top;
+      if (dragState.idx < 4){
+        // corner drag: same as before but work in image-relative normalized coords
+        const u = (px - imgDraw.dx) / imgDraw.dw;
+        const v = (py - imgDraw.dy) / imgDraw.dh;
+        handles[dragState.idx].u = Math.max(0, Math.min(1, u));
+        handles[dragState.idx].v = Math.max(0, Math.min(1, v));
+        positionHandleEls();
+        drawCanvas();
+      } else {
+        // mid-edge drag: move both adjacent corners along the edge normal by the projected delta
+        const { a, b, nx, ny } = dragState.edge;
+        // compute pointer delta from start in CSS coords
+        const dx = e.clientX - dragState.pointerStart.x;
+        const dy = e.clientY - dragState.pointerStart.y;
+        // project delta onto normal
+        const delta = dx * nx + dy * ny;
+        // new positions for corners in px:
+        const newAx = dragState.startCornersPx[a].x + nx * delta;
+        const newAy = dragState.startCornersPx[a].y + ny * delta;
+        const newBx = dragState.startCornersPx[b].x + nx * delta;
+        const newBy = dragState.startCornersPx[b].y + ny * delta;
+        // convert back to normalized u/v in image coords
+        const newAu = (newAx - imgDraw.dx) / imgDraw.dw;
+        const newAv = (newAy - imgDraw.dy) / imgDraw.dh;
+        const newBu = (newBx - imgDraw.dx) / imgDraw.dw;
+        const newBv = (newBy - imgDraw.dy) / imgDraw.dh;
+        // clamp to [0,1]
+        handles[a].u = Math.max(0, Math.min(1, newAu));
+        handles[a].v = Math.max(0, Math.min(1, newAv));
+        handles[b].u = Math.max(0, Math.min(1, newBu));
+        handles[b].v = Math.max(0, Math.min(1, newBv));
+        positionHandleEls();
+        drawCanvas();
+      }
       e.preventDefault();
     }
     function wrapperPointerUp(e){
-      draggingIdx = -1;
+      try { wrapper.releasePointerCapture && wrapper.releasePointerCapture(e.pointerId); } catch(_) {}
+      dragState = null;
       window.removeEventListener('pointermove', wrapperPointerMove);
       window.removeEventListener('pointerup', wrapperPointerUp);
-      try { wrapper.releasePointerCapture && wrapper.releasePointerCapture(e.pointerId); } catch(_) {}
     }
 
     let lastTap = 0;
@@ -672,11 +752,10 @@ function updatePreview(){
 
     const del = document.createElement('button');
     del.className = 'remove-btn';
-    del.textContent = 'X';            // 改成 "X" 字樣（依照要求）
+    del.textContent = 'X';
     del.title = '刪除此張';
     del.onclick = (e) => {
       e.stopPropagation();
-      // 直接刪除，不再跳確認視窗（使用者要求）
       images = images.filter(x => x.id !== o.id);
       updatePreview();
       updateStorageInfoEstimate();
