@@ -109,7 +109,7 @@
   <button onclick="triggerCamera()">📷 拍照</button>
   <button onclick="triggerFile()">🖼️ 選照片</button>
   <label>
-    <input type="checkbox" id="coverMode"> 90% 放大（不裁切原始裁切結果）
+    <input type="checkbox" id="coverMode"> 90% 放大
   </label>
   <button onclick="generatePDF()">🧾 產生 PDF</button>
   <button class="danger" onclick="clearAllImages()">🗑️ 清除全部</button>
@@ -126,6 +126,7 @@
 
     <div id="canvasContainer" class="canvas-wrapper" style="touch-action:none;">
       <canvas id="cropperCanvas" width="800" height="600"></canvas>
+      <!-- handles inserted dynamically -->
     </div>
 
     <div class="controls">
@@ -175,7 +176,6 @@ function dataURLToBlob(dataURL) {
 
 /* ---------- robust image dimension read ---------- */
 async function getImageDimensions(dataUrl) {
-  // Prefer createImageBitmap for accurate pixel sizes
   try {
     if ('createImageBitmap' in window) {
       const blob = dataURLToBlob(dataUrl);
@@ -190,7 +190,7 @@ async function getImageDimensions(dataUrl) {
       });
     }
   } catch (e) {
-    // fallback: draw to canvas
+    // fallback: draw to canvas to infer size
     return await new Promise((resolve, reject) => {
       const img = new Image();
       img.onload = () => {
@@ -330,7 +330,7 @@ function applyEffect(canvas, effect){
   ctx.putImageData(imgd, 0, 0);
 }
 
-/* ---------- cropper UI (handles + modal) ---------- */
+/* ---------- cropper UI & processing ---------- */
 function openCropper(dataUrl){
   return new Promise((resolve, reject) => {
     const modal = document.getElementById('cropperModal');
@@ -678,30 +678,37 @@ function getPdfFilename(){
   return d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+'_'+p(d.getHours())+p(d.getMinutes())+p(d.getSeconds())+'_轉檔.pdf';
 }
 
-/* ---------- generatePDF: 90% fill (contain) and robust iOS orientation ---------- */
+/* ---------- generatePDF: 90% fill (contain) with debug and correct checkbox read ---------- */
 async function generatePDF(){
   if (!images.length){ alert('請先加入圖片'); return; }
+
   const pdf = new jsPDF({unit:'pt', format:'a4', orientation: 'portrait'});
   let first = true;
-  const fillMode = !!document.getElementById('coverMode').checked;
-  const fillRatio = CONFIG.FILL_RATIO;
 
-  for (let idx=0; idx<images.length; idx++){
+  // read checkbox state at runtime
+  const checkbox = document.getElementById('coverMode');
+  const fillMode = !!(checkbox && checkbox.checked);
+  const fillRatio = CONFIG.FILL_RATIO || 0.90;
+
+  console.debug('generatePDF start', { fillMode, fillRatio, imagesCount: images.length });
+
+  for (let idx = 0; idx < images.length; idx++){
     const o = images[idx];
 
-    // robustly read pixel dims
-    let iw=0, ih=0;
+    // get pixel aspect via robust method
+    let iw = 0, ih = 0;
     try {
       const dims = await getImageDimensions(o.fullDataUrl);
       iw = dims.width || iw;
       ih = dims.height || ih;
-    } catch(e){
-      iw = o.w || 2480; ih = o.h || 3508;
+    } catch (err) {
+      iw = o.w || 2480;
+      ih = o.h || 3508;
     }
     if (!iw || !ih) { iw = o.w || 2480; ih = o.h || 3508; }
 
-    // decide orientation by pixel dims
-    const isLandscape = iw > ih;
+    const aspect = (iw / ih) || 1;
+    const isLandscape = aspect > 1;
     const orientation = isLandscape ? 'landscape' : 'portrait';
 
     if (first){
@@ -715,31 +722,47 @@ async function generatePDF(){
     const pageW = pdf.internal.pageSize.getWidth();
     const pageH = pdf.internal.pageSize.getHeight();
 
-    // target maximum area (90% if fillMode, else 98% to leave a little margin)
+    // target area: if fillMode use fillRatio (90%), else leave a bit more margin (98%)
     const targetW = pageW * (fillMode ? fillRatio : 0.98);
     const targetH = pageH * (fillMode ? fillRatio : 0.98);
 
-    // contain within target area (no cropping of your cropped result)
-    const imgAspect = iw / ih;
+    // contain within target area (no cropping)
     let drawW, drawH;
-    if (imgAspect > (targetW / targetH)) {
+    if (aspect > (targetW / targetH)) {
+      // fit by width
       drawW = targetW;
-      drawH = drawW / imgAspect;
+      drawH = drawW / aspect;
     } else {
+      // fit by height
       drawH = targetH;
-      drawW = drawH * imgAspect;
+      drawW = drawH * aspect;
     }
 
     const x = (pageW - drawW) / 2;
     const y = (pageH - drawH) / 2;
 
+    console.debug(`page ${idx+1}`, {
+      pageW, pageH, targetW, targetH, aspect,
+      drawW, drawH, x, y
+    });
+
+    // Add image
     pdf.addImage(o.fullDataUrl, 'JPEG', x, y, drawW, drawH);
   }
 
   pdf.save(getPdfFilename());
 }
 
-/* ---------- auto-enable 90% fill on iOS convenience ---------- */
+/* ---------- checkbox change listener for debug ---------- */
+(function attachCoverModeDebug(){
+  const cb = document.getElementById('coverMode');
+  if (!cb) return;
+  cb.addEventListener('change', () => {
+    console.debug('coverMode changed ->', cb.checked);
+  });
+})();
+
+/* ---------- auto-enable 90% fill on iOS convenience & init ---------- */
 window.addEventListener('DOMContentLoaded', ()=>{
   updatePreview();
   updateStorageInfoEstimate();
@@ -747,6 +770,7 @@ window.addEventListener('DOMContentLoaded', ()=>{
     const ua = navigator.userAgent || navigator.vendor || '';
     if (/iPhone|iPad|iPod/i.test(ua)) {
       document.getElementById('coverMode').checked = true;
+      console.debug('iOS detected: coverMode auto-enabled');
     }
   } catch(e){}
 });
