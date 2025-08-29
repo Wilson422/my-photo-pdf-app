@@ -634,28 +634,24 @@ function getPdfFilename(){
   return d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+'_'+p(d.getHours())+p(d.getMinutes())+p(d.getSeconds())+'_轉檔.pdf';
 }
 
-/* ---------- improved generatePDF (use jsPDF image properties to avoid iPhone distortion) ---------- */
+/* ---------- improved generatePDF (reduce excess whitespace per-orientation) ---------- */
 async function generatePDF(){
   if (!images.length){ alert('請先加入圖片'); return; }
 
+  // Create jsPDF instance but we'll add pages per-image with correct orientation
   const pdf = new jsPDF({unit:'pt', format:'a4', orientation: 'portrait'});
   let first = true;
 
   for (let idx=0; idx<images.length; idx++){
     const o = images[idx];
 
-    // try to get image properties via jsPDF helper first (more consistent across browsers)
+    // Prefer jsPDF image props, fallback to stored w/h or Image natural sizes.
     let props = null;
-    try {
-      props = pdf.getImageProperties(o.fullDataUrl);
-    } catch(e){
-      props = null;
-    }
+    try { props = pdf.getImageProperties(o.fullDataUrl); } catch(e){ props = null; }
 
-    let iw = props && props.width ? props.width : (o.w || 0);
-    let ih = props && props.height ? props.height : (o.h || 0);
+    let iw = (props && props.width) ? props.width : (o.w || 0);
+    let ih = (props && props.height) ? props.height : (o.h || 0);
 
-    // fallback: try loading HTMLImage and read natural sizes if still missing
     if ((!iw || !ih) || isNaN(iw) || isNaN(ih) || iw<=0 || ih<=0){
       try {
         const im = await new Promise((resolve, reject) => {
@@ -667,20 +663,11 @@ async function generatePDF(){
         iw = im.naturalWidth || iw;
         ih = im.naturalHeight || ih;
       } catch(e){
-        // ignore — will try to use stored w/h below
+        // fallback defaults
       }
     }
 
-    // If still suspicious (e.g. swapped values), choose the most reasonable by comparing to stored sizes
-    if (o.w && o.h){
-      const storedLandscape = o.w > o.h;
-      const measuredLandscape = iw > ih;
-      if (storedLandscape !== measuredLandscape){
-        iw = o.w;
-        ih = o.h;
-      }
-    }
-
+    // fallback default to avoid divide-by-zero
     if (!iw || !ih || isNaN(iw) || isNaN(ih) || iw <= 0 || ih <= 0){
       iw = 2480; ih = 3508;
     }
@@ -699,23 +686,53 @@ async function generatePDF(){
     const pageW = pdf.internal.pageSize.getWidth();
     const pageH = pdf.internal.pageSize.getHeight();
 
-    const marginScale = 0.95;
-    const maxW = pageW * marginScale;
-    const maxH = pageH * marginScale;
-    const imgAspect = iw / ih;
+    // Smart margin strategy:
+    // - Use small margins on the axis that is limiting (so landscape fills width more, portrait fills height more)
+    // - Set a minimum margin to avoid printer/trimming issues.
+    const MIN_MARGIN_PX = 6; // minimal safe margin in points
+    // default fraction margins
+    let marginFractionX = 0.02; // left/right fraction
+    let marginFractionY = 0.02; // top/bottom fraction
 
+    // When image orientation matches page orientation, reduce margin along the primary axis
+    if (isLandscape) {
+      // image is wide: reduce horizontal margins so it uses more width
+      marginFractionX = 0.01; // 1% each side
+      marginFractionY = 0.02; // keep vertical slightly larger
+    } else {
+      // portrait: reduce vertical margins
+      marginFractionX = 0.02;
+      marginFractionY = 0.01;
+    }
+
+    // compute pixel margins (points)
+    const marginX = Math.max(pageW * marginFractionX, MIN_MARGIN_PX);
+    const marginY = Math.max(pageH * marginFractionY, MIN_MARGIN_PX);
+
+    const maxW = pageW - 2 * marginX;
+    const maxH = pageH - 2 * marginY;
+
+    // compute draw size preserving aspect ratio
+    const imgAspect = iw / ih;
     let drawW, drawH;
     if (imgAspect > (maxW / maxH)) {
+      // fit by width
       drawW = maxW;
       drawH = drawW / imgAspect;
     } else {
+      // fit by height
       drawH = maxH;
       drawW = drawH * imgAspect;
     }
 
+    // Center the image
     const x = (pageW - drawW) / 2;
     const y = (pageH - drawH) / 2;
 
+    // Debug: uncomment to see values in browser console for troubleshooting on iPhone (use Safari Web Inspector)
+    // console.debug({pageW, pageH, marginX, marginY, maxW, maxH, iw, ih, drawW, drawH, x, y});
+
+    // Add image (jsPDF will embed the dataURL)
     pdf.addImage(o.fullDataUrl, 'JPEG', x, y, drawW, drawH);
   }
 
