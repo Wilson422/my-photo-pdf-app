@@ -84,7 +84,7 @@
     border: 3px solid #fff; box-shadow: 0 2px 6px rgba(0,0,0,0.35);
     z-index: 60; touch-action:none; cursor:grab;
   }
-  .handle.mid { background:#03a9f4; } /* 可視化中間點顏色不同（可選） */
+  .handle.mid { background:#03a9f4; } /* 中間點顏色不同 */
   .handle:active { cursor:grabbing; }
 
   .controls { margin-top:10px; display:flex; gap:.6em; align-items:center; flex-wrap:wrap; }
@@ -331,39 +331,48 @@ function readImageOrientation(arrayBuffer){
   return 1;
 }
 
-/* 根據 EXIF orientation 將 dataURL 的影像畫成正確方向，回傳新的 dataURL */
+/* 使用 ctx.transform() 的穩定 orientation 正規化（改善 Android 方向問題） */
 function normalizeDataUrlByOrientation(dataUrl, orientation){
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     if (!orientation || orientation === 1) return resolve(dataUrl);
     const img = new Image();
     img.onload = () => {
-      let w = img.width, h = img.height;
-      let canvas = document.createElement('canvas');
-      let ctx = canvas.getContext('2d');
+      const width = img.width, height = img.height;
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
 
-      // orientation 5/6/7/8 => rotate 90/270, swap dims
-      if (orientation >=5 && orientation <=8) {
-        canvas.width = h; canvas.height = w;
+      // 若需要旋轉 90/270 度，畫布寬高要交換
+      if ([5,6,7,8].includes(orientation)) {
+        canvas.width = height;
+        canvas.height = width;
       } else {
-        canvas.width = w; canvas.height = h;
+        canvas.width = width;
+        canvas.height = height;
       }
 
-      // apply transform
-      switch(orientation){
+      // 使用 ctx.transform(a,b,c,d,e,f) 做一致且正確的旋轉/翻轉
+      switch (orientation) {
         case 2: // horizontal flip
-          ctx.translate(w, 0); ctx.scale(-1,1); break;
+          ctx.transform(-1, 0, 0, 1, width, 0);
+          break;
         case 3: // rotate 180
-          ctx.translate(w, h); ctx.rotate(Math.PI); break;
+          ctx.transform(-1, 0, 0, -1, width, height);
+          break;
         case 4: // vertical flip
-          ctx.translate(0, h); ctx.scale(1,-1); break;
-        case 5: // transpose: flip horizontal and rotate 90
-          ctx.rotate(0.5*Math.PI); ctx.scale(1,-1); break;
+          ctx.transform(1, 0, 0, -1, 0, height);
+          break;
+        case 5: // transpose
+          ctx.transform(0, 1, 1, 0, 0, 0);
+          break;
         case 6: // rotate 90
-          ctx.rotate(0.5*Math.PI); ctx.translate(0, -h); break;
-        case 7: // transverse: flip vertical and rotate 90
-          ctx.rotate(0.5*Math.PI); ctx.translate(w, -h); ctx.scale(-1,1); break;
+          ctx.transform(0, 1, -1, 0, height, 0);
+          break;
+        case 7: // transverse
+          ctx.transform(0, -1, -1, 0, height, width);
+          break;
         case 8: // rotate 270
-          ctx.rotate(-0.5*Math.PI); ctx.translate(-w, 0); break;
+          ctx.transform(0, -1, 1, 0, 0, width);
+          break;
         default:
           break;
       }
@@ -377,7 +386,7 @@ function normalizeDataUrlByOrientation(dataUrl, orientation){
         resolve(dataUrl);
       }
     };
-    img.onerror = (e) => { resolve(dataUrl); };
+    img.onerror = () => { resolve(dataUrl); };
     img.src = dataUrl;
   });
 }
@@ -406,7 +415,6 @@ function openCropper(dataUrl){
           const el = document.createElement('div');
           el.className = 'handle' + (i>=4 ? ' mid' : '');
           el.dataset.idx = i;
-          // prevent default pointerdown to avoid scrolling
           el.addEventListener('pointerdown', (ev) => { ev.preventDefault(); });
           wrapper.appendChild(el);
           handleEls[i] = el;
