@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1.0" />
-<title>文件拍照轉 PDF（四點手動校正 - 含排序與刪除）</title>
+<title>文件拍照轉 PDF（四點手動校正）</title>
 <style>
   body { font-family: Arial, "Noto Sans TC", sans-serif; margin:1.2em; background:#fff; }
   h2 { margin-top:0; }
@@ -330,7 +330,7 @@ function openCropper(dataUrl){
       ctx.lineWidth = 2;
       ctx.strokeStyle = 'rgba(25,118,210,0.95)';
       ctx.beginPath();
-      for (let i=0;i<4;i++){
+      for (let i=0;i<4;i++){ 
         const p = { x: imgDraw.dx + handles[i].u * imgDraw.dw, y: imgDraw.dy + handles[i].v * imgDraw.dh };
         if (i===0) ctx.moveTo(p.x, p.y);
         else ctx.lineTo(p.x, p.y);
@@ -432,9 +432,6 @@ function openCropper(dataUrl){
       imgDraw = { dx, dy, dw, dh, scale };
       wrapper.style.width = canvas.style.width;
       wrapper.style.height = canvas.style.height;
-      wrapper.style.display = 'inline-block';
-      wrapper.style.position = 'relative';
-      wrapper.style.touchAction = 'none';
       ensureHandles();
       resetHandles();
       positionHandleEls();
@@ -623,21 +620,65 @@ function getPdfFilename(){
   const d=new Date(), p=n=>String(n).padStart(2,'0');
   return d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+'_'+p(d.getHours())+p(d.getMinutes())+p(d.getSeconds())+'_轉檔.pdf';
 }
-function generatePDF(){
+
+/* ---------- improved generatePDF (preserve aspect ratio across devices) ---------- */
+async function generatePDF(){
   if (!images.length){ alert('請先加入圖片'); return; }
   const pdf = new jsPDF({unit:'pt', format:'a4', orientation: 'portrait'});
-  let first=true;
-  images.forEach(o=>{
-    const isLandscape = o.w > o.h;
-    if (first){ pdf.deletePage(1); pdf.addPage('a4', isLandscape ? 'landscape' : 'portrait'); first=false; }
-    else pdf.addPage('a4', isLandscape ? 'landscape' : 'portrait');
-    const pdfW = pdf.internal.pageSize.getWidth();
-    const pdfH = pdf.internal.pageSize.getHeight();
-    const ratio = Math.min(pdfW / o.w, pdfH / o.h);
-    const w = o.w * ratio, h = o.h * ratio;
-    const x = (pdfW - w) / 2, y = (pdfH - h) / 2;
-    pdf.addImage(o.fullDataUrl, 'JPEG', x, y, w, h);
-  });
+  let first = true;
+
+  for (let idx=0; idx<images.length; idx++){
+    const o = images[idx];
+
+    // load the image to get naturalWidth / naturalHeight to avoid DPR issues
+    const img = await new Promise((resolve, reject) => {
+      const im = new Image();
+      im.onload = () => resolve(im);
+      im.onerror = (e) => reject(e);
+      im.src = o.fullDataUrl;
+    });
+
+    const iw = img.naturalWidth;
+    const ih = img.naturalHeight;
+    const isLandscape = iw > ih;
+    const orientation = isLandscape ? 'landscape' : 'portrait';
+
+    // create page with correct orientation, then compute available page size for that page
+    if (first){
+      pdf.deletePage(1);
+      pdf.addPage('a4', orientation);
+      first = false;
+    } else {
+      pdf.addPage('a4', orientation);
+    }
+
+    const pageW = pdf.internal.pageSize.getWidth();
+    const pageH = pdf.internal.pageSize.getHeight();
+
+    // Fit image inside page while preserving aspect ratio.
+    // Use small margin (95% of page) to avoid bleed; adjust if you want edge-to-edge.
+    const marginScale = 0.95;
+    const maxW = pageW * marginScale;
+    const maxH = pageH * marginScale;
+    const imgAspect = iw / ih;
+
+    let drawW, drawH;
+    if (imgAspect > (maxW / maxH)) {
+      // image is relatively wider -> fit by width
+      drawW = maxW;
+      drawH = drawW / imgAspect;
+    } else {
+      // fit by height
+      drawH = maxH;
+      drawW = drawH * imgAspect;
+    }
+
+    const x = (pageW - drawW) / 2;
+    const y = (pageH - drawH) / 2;
+
+    pdf.addImage(o.fullDataUrl, 'JPEG', x, y, drawW, drawH);
+  }
+
   pdf.save(getPdfFilename());
 }
 
