@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1.0" />
-<title>文件拍照轉 PDF（四點手動校正）</title>
+<title>文件拍照轉 PDF（四點手動校正 - 含排序與刪除）</title>
 <style>
   body { font-family: Arial, "Noto Sans TC", sans-serif; margin:1.2em; background:#fff; }
   h2 { margin-top:0; }
@@ -103,7 +103,7 @@
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 </head>
 <body>
-<h2>📄 文件拍照轉 PDF（四點手動校正）</h2>
+<h2>📄 文件拍照轉 PDF（四點手動校正 - 含排序與刪除）</h2>
 
 <div class="actions">
   <input type="file" accept="image/*" capture="environment" id="cameraInput">
@@ -447,8 +447,22 @@ function openCropper(dataUrl){
       function dist(a,b){ return Math.hypot(a.x-b.x,a.y-b.y); }
       const wA = dist(srcPts[2], srcPts[3]), wB = dist(srcPts[1], srcPts[0]);
       const hA = dist(srcPts[1], srcPts[2]), hB = dist(srcPts[0], srcPts[3]);
-      const dstW = Math.min(Math.round(Math.max(wA,wB)), CONFIG.FULL_MAX_DIM);
-      const dstH = Math.min(Math.round(Math.max(hA,hB)), CONFIG.FULL_MAX_DIM);
+
+      // NEW: compute bounding box and use average strategy to avoid accidental square outputs
+      const xs = srcPts.map(p => p.x);
+      const ys = srcPts.map(p => p.y);
+      const bboxW = Math.max(...xs) - Math.min(...xs);
+      const bboxH = Math.max(...ys) - Math.min(...ys);
+
+      // average wA,wB,bboxW to be robust; ensure >=1
+      let dstW = Math.round((wA + wB + bboxW) / 3) || 1;
+      let dstH = Math.round((hA + hB + bboxH) / 3) || 1;
+      dstW = Math.min(dstW, CONFIG.FULL_MAX_DIM);
+      dstH = Math.min(dstH, CONFIG.FULL_MAX_DIM);
+
+      // debug (查看 iPhone Safari remote debugger 的 console)
+      console.debug('crop srcPts:', srcPts, 'wA,wB,hA,hB:', wA, wB, hA, hB, 'bboxW,bboxH:', bboxW, bboxH, 'dstW,dstH:', dstW, dstH);
+
       const dstPts = [{x:0,y:0},{x:dstW-1,y:0},{x:dstW-1,y:dstH-1},{x:0,y:dstH-1}];
       const H = computeHomography(srcPts, dstPts);
       if (!H) { alert('計算失敗，請調整四點後重試'); return; }
@@ -659,20 +673,16 @@ async function generatePDF(){
 
     // If still suspicious (e.g. swapped values), choose the most reasonable by comparing to stored sizes
     if (o.w && o.h){
-      // prefer the pair that has same orientation as stored sizes
       const storedLandscape = o.w > o.h;
       const measuredLandscape = iw > ih;
       if (storedLandscape !== measuredLandscape){
-        // If orientations mismatch, pick stored dimensions (they were created from our processing pipeline)
         iw = o.w;
         ih = o.h;
       }
     }
 
-    // final sanity: if any zero, fallback to default A4 full width scaling
     if (!iw || !ih || isNaN(iw) || isNaN(ih) || iw <= 0 || ih <= 0){
-      // assume A4-ish image
-      iw = 2480; ih = 3508; // approx px at 300dpi for A4 portrait - only to avoid divide by zero
+      iw = 2480; ih = 3508;
     }
 
     const isLandscape = iw > ih;
@@ -689,7 +699,6 @@ async function generatePDF(){
     const pageW = pdf.internal.pageSize.getWidth();
     const pageH = pdf.internal.pageSize.getHeight();
 
-    // Fit image inside page while preserving aspect ratio.
     const marginScale = 0.95;
     const maxW = pageW * marginScale;
     const maxH = pageH * marginScale;
@@ -707,7 +716,6 @@ async function generatePDF(){
     const x = (pageW - drawW) / 2;
     const y = (pageH - drawH) / 2;
 
-    // Use the dataUrl we stored. jsPDF will embed it and draw with provided drawW/drawH (points).
     pdf.addImage(o.fullDataUrl, 'JPEG', x, y, drawW, drawH);
   }
 
