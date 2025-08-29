@@ -110,6 +110,9 @@
   <input type="file" accept="image/*" multiple id="fileInput">
   <button onclick="triggerCamera()">📷 拍照</button>
   <button onclick="triggerFile()">🖼️ 選照片</button>
+  <label style="display:flex;align-items:center;gap:.4em;">
+    <input type="checkbox" id="coverMode"> 滿版模式（Cover，會裁切超出頁面部分）
+  </label>
   <button onclick="generatePDF()">🧾 產生 PDF</button>
   <button class="danger" onclick="clearAllImages()">🗑️ 清除全部</button>
   <span id="loading">處理中...</span>
@@ -160,7 +163,7 @@ const CONFIG = {
 let images = []; // 存放已處理的影像物件
 const { jsPDF } = window.jspdf || {};
 
-/* ---------- Homography & Warp (bilinear) helpers ---------- */
+/* ---------- helpers (homography/warp/applyEffect) ---------- */
 function solveLinearSystem(A, b) {
   const n = A.length;
   const M = new Array(n).fill(0).map((_,i)=>A[i].slice().concat(b[i]));
@@ -219,7 +222,6 @@ function warpImageWithHomography(srcCanvas, H, dstW, dstH){
       if (denom === 0) continue;
       const sx = (Hinv[0][0]*i + Hinv[0][1]*j + Hinv[0][2]) / denom;
       const sy = (Hinv[1][0]*i + Hinv[1][1]*j + Hinv[1][2]) / denom;
-      // bilinear sampling
       let sample;
       if (sx<0||sy<0||sx>=srcW||sy>=srcH) {
         const xi = Math.min(Math.max(Math.round(sx),0), srcW-1);
@@ -284,7 +286,7 @@ function applyEffect(canvas, effect){
   ctx.putImageData(imgd, 0, 0);
 }
 
-/* ---------- openCropper (DOM handles) ---------- */
+/* ---------- cropper UI & processing (unchanged besides dst calc improvements) ---------- */
 function openCropper(dataUrl){
   return new Promise((resolve, reject) => {
     const modal = document.getElementById('cropperModal');
@@ -295,7 +297,7 @@ function openCropper(dataUrl){
     modal.style.display = 'flex';
 
     const img = new Image();
-    let imgDraw = { dx:0, dy:0, dw:0, dh:0, scale:1 }; // CSS px
+    let imgDraw = { dx:0, dy:0, dw:0, dh:0, scale:1 };
     let handles = [];
     let handleEls = [];
 
@@ -330,7 +332,7 @@ function openCropper(dataUrl){
       ctx.lineWidth = 2;
       ctx.strokeStyle = 'rgba(25,118,210,0.95)';
       ctx.beginPath();
-      for (let i=0;i<4;i++){ 
+      for (let i=0;i<4;i++){
         const p = { x: imgDraw.dx + handles[i].u * imgDraw.dw, y: imgDraw.dy + handles[i].v * imgDraw.dh };
         if (i===0) ctx.moveTo(p.x, p.y);
         else ctx.lineTo(p.x, p.y);
@@ -350,7 +352,6 @@ function openCropper(dataUrl){
       drawCanvas();
     }
 
-    // wrapper-level pointer handling
     let draggingIdx = -1;
     function wrapperPointerDown(e){
       const rect = canvas.getBoundingClientRect();
@@ -448,20 +449,18 @@ function openCropper(dataUrl){
       const wA = dist(srcPts[2], srcPts[3]), wB = dist(srcPts[1], srcPts[0]);
       const hA = dist(srcPts[1], srcPts[2]), hB = dist(srcPts[0], srcPts[3]);
 
-      // NEW: compute bounding box and use average strategy to avoid accidental square outputs
+      // compute bounding box and robust dst size
       const xs = srcPts.map(p => p.x);
       const ys = srcPts.map(p => p.y);
       const bboxW = Math.max(...xs) - Math.min(...xs);
       const bboxH = Math.max(...ys) - Math.min(...ys);
 
-      // average wA,wB,bboxW to be robust; ensure >=1
       let dstW = Math.round((wA + wB + bboxW) / 3) || 1;
       let dstH = Math.round((hA + hB + bboxH) / 3) || 1;
       dstW = Math.min(dstW, CONFIG.FULL_MAX_DIM);
       dstH = Math.min(dstH, CONFIG.FULL_MAX_DIM);
 
-      // debug (查看 iPhone Safari remote debugger 的 console)
-      console.debug('crop srcPts:', srcPts, 'wA,wB,hA,hB:', wA, wB, hA, hB, 'bboxW,bboxH:', bboxW, bboxH, 'dstW,dstH:', dstW, dstH);
+      console.debug('crop srcPts:', srcPts, 'bboxW,bboxH:', bboxW, bboxH, 'dstW,dstH:', dstW, dstH);
 
       const dstPts = [{x:0,y:0},{x:dstW-1,y:0},{x:dstW-1,y:dstH-1},{x:0,y:dstH-1}];
       const H = computeHomography(srcPts, dstPts);
@@ -634,21 +633,20 @@ function getPdfFilename(){
   return d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+'_'+p(d.getHours())+p(d.getMinutes())+p(d.getSeconds())+'_轉檔.pdf';
 }
 
-/* ---------- improved generatePDF (reduce excess whitespace per-orientation) ---------- */
+/* ---------- generatePDF with cover (fill) option ---------- */
 async function generatePDF(){
   if (!images.length){ alert('請先加入圖片'); return; }
 
-  // Create jsPDF instance but we'll add pages per-image with correct orientation
   const pdf = new jsPDF({unit:'pt', format:'a4', orientation: 'portrait'});
   let first = true;
+  const coverMode = !!document.getElementById('coverMode').checked;
 
   for (let idx=0; idx<images.length; idx++){
     const o = images[idx];
 
-    // Prefer jsPDF image props, fallback to stored w/h or Image natural sizes.
+    // get image size (prefer jsPDF helper)
     let props = null;
     try { props = pdf.getImageProperties(o.fullDataUrl); } catch(e){ props = null; }
-
     let iw = (props && props.width) ? props.width : (o.w || 0);
     let ih = (props && props.height) ? props.height : (o.h || 0);
 
@@ -662,12 +660,9 @@ async function generatePDF(){
         });
         iw = im.naturalWidth || iw;
         ih = im.naturalHeight || ih;
-      } catch(e){
-        // fallback defaults
-      }
+      } catch(e){}
     }
 
-    // fallback default to avoid divide-by-zero
     if (!iw || !ih || isNaN(iw) || isNaN(ih) || iw <= 0 || ih <= 0){
       iw = 2480; ih = 3508;
     }
@@ -686,61 +681,67 @@ async function generatePDF(){
     const pageW = pdf.internal.pageSize.getWidth();
     const pageH = pdf.internal.pageSize.getHeight();
 
-    // Smart margin strategy:
-    // - Use small margins on the axis that is limiting (so landscape fills width more, portrait fills height more)
-    // - Set a minimum margin to avoid printer/trimming issues.
-    const MIN_MARGIN_PX = 6; // minimal safe margin in points
+    // margins: small base margins
+    const MIN_MARGIN_PX = 2; // 更小的安全邊距 (點)
     // default fraction margins
-    let marginFractionX = 0.02; // left/right fraction
-    let marginFractionY = 0.02; // top/bottom fraction
+    let marginFractionX = 0.01;
+    let marginFractionY = 0.01;
 
-    // When image orientation matches page orientation, reduce margin along the primary axis
-    if (isLandscape) {
-      // image is wide: reduce horizontal margins so it uses more width
-      marginFractionX = 0.01; // 1% each side
-      marginFractionY = 0.02; // keep vertical slightly larger
+    // if cover mode, we want to minimize visible whitespace: use even smaller margins
+    if (coverMode){
+      marginFractionX = 0.005;
+      marginFractionY = 0.005;
     } else {
-      // portrait: reduce vertical margins
-      marginFractionX = 0.02;
-      marginFractionY = 0.01;
+      // slightly adjust per orientation to reduce whitespace (non-cover)
+      if (isLandscape) marginFractionX = 0.008;
+      else marginFractionY = 0.008;
     }
 
-    // compute pixel margins (points)
     const marginX = Math.max(pageW * marginFractionX, MIN_MARGIN_PX);
     const marginY = Math.max(pageH * marginFractionY, MIN_MARGIN_PX);
 
     const maxW = pageW - 2 * marginX;
     const maxH = pageH - 2 * marginY;
 
-    // compute draw size preserving aspect ratio
-    const imgAspect = iw / ih;
+    // If coverMode: scale so image covers the whole area (may crop). Else: contain (fit inside).
     let drawW, drawH;
-    if (imgAspect > (maxW / maxH)) {
-      // fit by width
-      drawW = maxW;
-      drawH = drawW / imgAspect;
+    if (coverMode) {
+      const scale = Math.max(maxW / iw, maxH / ih); // cover
+      drawW = Math.round(iw * scale);
+      drawH = Math.round(ih * scale);
     } else {
-      // fit by height
-      drawH = maxH;
-      drawW = drawH * imgAspect;
+      const imgAspect = iw / ih;
+      if (imgAspect > (maxW / maxH)) { drawW = maxW; drawH = drawW / imgAspect; }
+      else { drawH = maxH; drawW = drawH * imgAspect; }
     }
 
-    // Center the image
+    // Center the image (if drawW > pageW or drawH > pageH, x/y may be negative -> image gets cropped)
     const x = (pageW - drawW) / 2;
     const y = (pageH - drawH) / 2;
 
-    // Debug: uncomment to see values in browser console for troubleshooting on iPhone (use Safari Web Inspector)
-    // console.debug({pageW, pageH, marginX, marginY, maxW, maxH, iw, ih, drawW, drawH, x, y});
+    // Safety: ensure numbers are finite
+    const X = isFinite(x) ? x : 0;
+    const Y = isFinite(y) ? y : 0;
+    const DW = isFinite(drawW) ? drawW : maxW;
+    const DH = isFinite(drawH) ? drawH : maxH;
 
-    // Add image (jsPDF will embed the dataURL)
-    pdf.addImage(o.fullDataUrl, 'JPEG', x, y, drawW, drawH);
+    // Add the image
+    pdf.addImage(o.fullDataUrl, 'JPEG', X, Y, DW, DH);
   }
 
   pdf.save(getPdfFilename());
 }
 
-/* init */
-window.addEventListener('DOMContentLoaded', ()=>{ updatePreview(); updateStorageInfoEstimate(); });
+/* ---------- auto-enable cover mode on iOS for convenience ---------- */
+window.addEventListener('DOMContentLoaded', ()=>{
+  updatePreview();
+  updateStorageInfoEstimate();
+  // auto enable cover mode on iOS devices (user can toggle)
+  const ua = navigator.userAgent || navigator.vendor || '';
+  if (/iPhone|iPad|iPod/i.test(ua)) {
+    try { document.getElementById('coverMode').checked = true; } catch(e){}
+  }
+});
 </script>
 </body>
 </html>
