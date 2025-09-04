@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1.0" />
-<title>文件拍照轉 PDF（v5 增強修正版）</title>
+<title>文件拍照轉 PDF（v5 增強：LINE偵測 / 自動方向 / 強化自動四角 / 可重編輯）</title>
 <style>
   body { font-family: Arial,"Noto Sans TC",sans-serif; margin:1.2em; background:#fff; }
   h2 { margin-top:0; font-size:1.15em; }
@@ -66,6 +66,7 @@
   #autoDetectStatus { font-size:.66em; color:#555; min-height:1em; }
   #cropperBtns { margin-top:12px; display:flex; gap:.65em; flex-wrap:wrap; }
   #cropperBtns button { font-size:.78em; }
+
   #rotationIndicator { font-size:.66em; color:#444; }
   #sizeHint { font-size:.66em; color:#444; }
 
@@ -124,11 +125,12 @@
 <div id="cropperModal" role="dialog" aria-modal="true">
   <div class="modal-content">
     <div id="cropperTip">
-      拖曳四角(大點)或邊中(小點)調整文件範圍。雙擊畫面重設。可自動偵測、旋轉。確定後可再回縮圖重新裁切。
+      拖曳四角(大點)或邊中(小點)調整文件範圍。雙擊畫面重設四角。可自動偵測、旋轉。確定後可再回縮圖點擊重新編輯。
     </div>
     <div id="canvasContainer" class="canvas-wrapper">
       <canvas id="cropperCanvas" width="800" height="600"></canvas>
     </div>
+
     <div class="controls">
       <label>效果：
         <select id="effectSelect">
@@ -144,6 +146,7 @@
       <span id="rotationIndicator"></span>
       <span id="sizeHint"></span>
     </div>
+
     <div id="cropperBtns">
       <button id="cropResetBtn">重設</button>
       <button id="cropConfirmBtn">確定裁切</button>
@@ -154,99 +157,117 @@
 
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 <script>
-/* ------------------ Config & State ------------------ */
+/* ------------------ Global Config & State ------------------ */
 const CONFIG = {
   FULL_MAX_DIM: 2000,
   PREVIEW_MAX_WIDTH: 420,
   IMAGE_QUALITY: 0.9,
   AUTO_ROTATE_RATIO_MIN: 1.3,
-  AUTO_ROTATE_RATIO_MAX: 2.2,
-  AUTO_DETECT_PERCENTILE: 0.80,          // 可調 0.75~0.9
-  ROTATE_KEEP_POINTS: true               // true: 旋轉時保留現有四點
+  AUTO_ROTATE_RATIO_MAX: 2.2
 };
 const { jsPDF } = window.jspdf || {};
-let images = []; // 同前
+let images = []; 
+/*
+ image object:
+ {
+   id,
+   originalDataUrl,        // 已做EXIF修正 + 啟發式旋轉後的基礎圖
+   rotation: 0|90|180|270, // 最後一次裁切時在cropper內使用的旋轉角度
+   cropRelPoints: [{u,v}*4], // TL,TR,BR,BL 相對座標
+   effect: 'original'|'gray'|'bw',
+   fullDataUrl,
+   previewDataUrl,
+   w, h
+ }
+*/
 let editingImageId = null;
 
 /* ------------------ LINE Browser Detect ------------------ */
 function isLineBrowser(){
-  return /Line\/|LINE\//.test(navigator.userAgent||'');
+  const ua = navigator.userAgent || '';
+  return /Line\/|LINE\//.test(ua);
 }
 function showLineOverlay(){
   if (!isLineBrowser()) return;
   const ov = document.getElementById('lineOverlay');
   document.getElementById('lineUrl').textContent = location.href;
-  ov.style.display='flex';
-  document.getElementById('copyLineUrlBtn').onclick=()=>{
+  ov.style.display = 'flex';
+  document.getElementById('copyLineUrlBtn').onclick = () => {
     navigator.clipboard.writeText(location.href).then(()=>alert('已複製網址'));
   };
-  document.getElementById('lineContinueBtn').onclick=()=>ov.style.display='none';
+  document.getElementById('lineContinueBtn').onclick = () => ov.style.display='none';
 }
 
-/* ------------------ EXIF + Heuristic Rotation ------------------ */
+/* ------------------ EXIF Orientation + Heuristic Rotation ------------------ */
 async function loadImageNormalized(file){
-  const buf = await file.arrayBuffer();
-  const ori = getExifOrientation(buf);
+  const arrayBuffer = await file.arrayBuffer();
+  let orientation = getExifOrientation(arrayBuffer);
   let dataUrl;
+
   if (self.createImageBitmap){
-    try{
-      const bmp = await createImageBitmap(new Blob([buf]), { imageOrientation:'from-image' });
+    try {
+      const bmp = await createImageBitmap(new Blob([arrayBuffer]), { imageOrientation:'from-image' });
       dataUrl = bitmapToDataURL(bmp);
-    }catch(e){}
+    } catch(e){}
   }
-  if(!dataUrl){
-    dataUrl = await blobToDataURL(new Blob([buf], {type:file.type||'image/jpeg'}));
+  if (!dataUrl){
+    dataUrl = await blobToDataURL(new Blob([arrayBuffer], { type: file.type || 'image/jpeg'}));
   }
-  if (ori !== 1){
-    dataUrl = await fixOrientationByValue(dataUrl, ori);
+
+  if (orientation !== 1){
+    dataUrl = await fixOrientationByValue(dataUrl, orientation);
   } else {
-    const img = await loadImg(dataUrl);
-    const ratio = img.naturalWidth / img.naturalHeight;
+    // Heuristic rotate 90° (assume vertical shot that got sideways)
+    const tmp = await loadImg(dataUrl);
+    const ratio = tmp.naturalWidth / tmp.naturalHeight;
     if (ratio > CONFIG.AUTO_ROTATE_RATIO_MIN && ratio <= CONFIG.AUTO_ROTATE_RATIO_MAX){
-      dataUrl = rotateImgToDataURL(img, 90);
+      dataUrl = rotateImgToDataURL(tmp, 90);
     }
   }
   return dataUrl;
 }
+
 function getExifOrientation(buf){
-  try{
+  try {
     const view=new DataView(buf);
-    if(view.getUint16(0,false)!==0xFFD8) return 1;
-    let off=2;
-    while(off < view.byteLength){
-      const marker=view.getUint16(off,false); off+=2;
-      if(marker===0xFFE1){
-        const size=view.getUint16(off,false);
-        const exifHeader=off+2;
-        if(view.getUint32(exifHeader,false)!==0x45786966) return 1;
-        const tiff=exifHeader+6;
-        const little=view.getUint16(tiff,false)===0x4949;
-        if(view.getUint16(tiff+2,little)!==0x002A) return 1;
-        let ifd=view.getUint32(tiff+4,little)+tiff;
-        const entries=view.getUint16(ifd,little);
-        for(let i=0;i<entries;i++){
-          const entry=ifd+2+i*12;
-          if(view.getUint16(entry,little)===0x0112)
+    if (view.getUint16(0,false)!==0xFFD8) return 1;
+    let offset=2;
+    while(offset < view.byteLength){
+      const marker = view.getUint16(offset,false); offset+=2;
+      if (marker === 0xFFE1){
+        const size = view.getUint16(offset,false);
+        const exifHeader = offset+2;
+        if (view.getUint32(exifHeader,false)!==0x45786966) return 1;
+        const tiff = exifHeader+6;
+        const little = (view.getUint16(tiff,false)===0x4949);
+        if (view.getUint16(tiff+2,little)!==0x002A) return 1;
+        let ifd = view.getUint32(tiff+4,little)+tiff;
+        const entries = view.getUint16(ifd,little);
+        for (let i=0;i<entries;i++){
+          const entry = ifd+2+i*12;
+          if (view.getUint16(entry,little)===0x0112){
             return view.getUint16(entry+8,little)||1;
+          }
         }
         return 1;
       } else if (marker===0xFFDA) break;
       else {
-        const size=view.getUint16(off,false);
-        off+=size;
+        const size=view.getUint16(offset,false);
+        offset+=size;
       }
     }
-  }catch(e){}
+  } catch(e){}
   return 1;
 }
-function fixOrientationByValue(dataUrl, o){
+function fixOrientationByValue(dataUrl, orientation){
   return new Promise(res=>{
-    if(o===1) return res(dataUrl);
+    if (orientation===1) return res(dataUrl);
     const img=new Image();
     img.onload=()=>{
       const w=img.naturalWidth,h=img.naturalHeight;
-      const c=document.createElement('canvas'), ctx=c.getContext('2d');
-      switch(o){
+      const c=document.createElement('canvas');
+      const ctx=c.getContext('2d');
+      switch(orientation){
         case 2: c.width=w;c.height=h;ctx.translate(w,0);ctx.scale(-1,1);break;
         case 3: c.width=w;c.height=h;ctx.translate(w,h);ctx.rotate(Math.PI);break;
         case 4: c.width=w;c.height=h;ctx.translate(0,h);ctx.scale(1,-1);break;
@@ -264,12 +285,13 @@ function fixOrientationByValue(dataUrl, o){
   });
 }
 function rotateImgToDataURL(img, deg){
-  const c=document.createElement('canvas'), ctx=c.getContext('2d');
-  if(deg%180===0){ c.width=img.naturalWidth; c.height=img.naturalHeight; }
+  const c=document.createElement('canvas');
+  const ctx=c.getContext('2d');
+  if (deg % 180 === 0){ c.width=img.naturalWidth; c.height=img.naturalHeight; }
   else { c.width=img.naturalHeight; c.height=img.naturalWidth; }
-  ctx.translate(c.width/2,c.height/2);
+  ctx.translate(c.width/2, c.height/2);
   ctx.rotate(deg*Math.PI/180);
-  ctx.drawImage(img,-img.naturalWidth/2, -img.naturalHeight/2);
+  ctx.drawImage(img, -img.naturalWidth/2, -img.naturalHeight/2);
   return c.toDataURL('image/jpeg', CONFIG.IMAGE_QUALITY);
 }
 function bitmapToDataURL(bmp){
@@ -288,52 +310,55 @@ function blobToDataURL(blob){
 }
 function loadImg(url){
   return new Promise((res,rej)=>{
-    const i=new Image();
-    i.onload=()=>res(i);
-    i.onerror=rej;
-    i.src=url;
+    const img=new Image();
+    img.onload=()=>res(img);
+    img.onerror=rej;
+    img.src=url;
   });
 }
 
-/* ------------------ Enhanced Auto Detect Corners ------------------ */
+/* ------------------ Enhanced Auto Corner Detection (強化) ------------------ */
 function autoDetectDocumentCorners(img){
-  try{
+  try {
     const MAX_SIDE=900;
     const scale=Math.min(1, MAX_SIDE/Math.max(img.width,img.height));
     const sw=Math.round(img.width*scale), sh=Math.round(img.height*scale);
     const c=document.createElement('canvas'); c.width=sw; c.height=sh;
     const ctx=c.getContext('2d'); ctx.drawImage(img,0,0,sw,sh);
-    const imd=ctx.getImageData(0,0,sw,sh); const d=imd.data;
+    const imd=ctx.getImageData(0,0,sw,sh);
+    const d=imd.data;
 
     const gray=new Uint8ClampedArray(sw*sh);
-    for(let i=0,j=0;i<d.length;i+=4,j++) gray[j]=(0.299*d[i]+0.587*d[i+1]+0.114*d[i+2])|0;
+    for (let i=0,j=0;i<d.length;i+=4,j++)
+      gray[j]=(0.299*d[i]+0.587*d[i+1]+0.114*d[i+2])|0;
 
     function boxBlur(src){
       const out=new Uint8ClampedArray(src.length);
-      for(let y=0;y<sh;y++){
-        for(let x=0;x<sw;x++){
-          let sum=0,cnt=0;
-          for(let ky=-1;ky<=1;ky++){
-            const yy=y+ky; if(yy<0||yy>=sh) continue;
-            for(let kx=-1;kx<=1;kx++){
-              const xx=x+kx; if(xx<0||xx>=sw) continue;
-              sum+=src[yy*sw+xx]; cnt++;
+      for (let y=0;y<sh;y++){
+        for (let x=0;x<sw;x++){
+          let sum=0,count=0;
+          for (let ky=-1;ky<=1;ky++){
+            const yy=y+ky; if (yy<0||yy>=sh) continue;
+            for (let kx=-1;kx<=1;kx++){
+              const xx=x+kx; if (xx<0||xx>=sw) continue;
+              sum+=src[yy*sw+xx]; count++;
             }
           }
-          out[y*sw+x]=(sum/cnt)|0;
+          out[y*sw+x]=(sum/count)|0;
         }
       }
       return out;
     }
     let blurred=boxBlur(gray); blurred=boxBlur(blurred);
 
-    const gxK=[-1,0,1,-2,0,2,-1,0,1], gyK=[-1,-2,-1,0,0,0,1,2,1];
+    const gxK=[-1,0,1,-2,0,2,-1,0,1];
+    const gyK=[-1,-2,-1,0,0,0,1,2,1];
     const mag=new Float32Array(sw*sh);
-    for(let y=1;y<sh-1;y++){
-      for(let x=1;x<sw-1;x++){
+    for (let y=1;y<sh-1;y++){
+      for (let x=1;x<sw-1;x++){
         let gx=0,gy=0,idx=0;
-        for(let ky=-1;ky<=1;ky++){
-          for(let kx=-1;kx<=1;kx++){
+        for (let ky=-1;ky<=1;ky++){
+          for (let kx=-1;kx<=1;kx++){
             const v=blurred[(y+ky)*sw+(x+kx)];
             gx+=v*gxK[idx]; gy+=v*gyK[idx]; idx++;
           }
@@ -341,106 +366,111 @@ function autoDetectDocumentCorners(img){
         mag[y*sw+x]=Math.hypot(gx,gy);
       }
     }
-    const vals=Array.from(mag).filter(v=>v>0);
-    if(!vals.length) return null;
-    vals.sort((a,b)=>a-b);
-    const thresh = vals[Math.floor(vals.length*CONFIG.AUTO_DETECT_PERCENTILE)];
+
+    const mags = Array.from(mag).filter(v=>v>0);
+    if (!mags.length) return null;
+    mags.sort((a,b)=>a-b);
+    const thresh = mags[Math.floor(mags.length*0.80)];
     const edge=new Uint8Array(sw*sh);
-    for(let i=0;i<mag.length;i++) edge[i]=mag[i]>=thresh?1:0;
+    for (let i=0;i<mag.length;i++) edge[i]=mag[i]>=thresh?1:0;
 
+    // 連通區
     const visited=new Uint8Array(sw*sh);
-    const stack=[], pts=[];
-    let best=null, bestArea=0;
-
+    let bestQuad=null; let bestArea=0;
+    const stack=[]; const pts=[];
     function push(x,y){ stack.push({x,y}); visited[y*sw+x]=1; }
 
-    for(let y=0;y<sh;y++){
-      for(let x=0;x<sw;x++){
-        const id=y*sw+x;
-        if(!edge[id] || visited[id]) continue;
+    for (let y=0;y<sh;y++){
+      for (let x=0;x<sw;x++){
+        const idx=y*sw+x;
+        if (!edge[idx] || visited[idx]) continue;
         stack.length=0; pts.length=0;
         push(x,y);
         while(stack.length){
           const p=stack.pop(); pts.push(p);
-          for(let dy=-1;dy<=1;dy++){
-            for(let dx=-1;dx<=1;dx++){
-              if(!dx && !dy) continue;
+          for (let dy=-1;dy<=1;dy++){
+            for (let dx=-1;dx<=1;dx++){
+              if (!dx && !dy) continue;
               const nx=p.x+dx, ny=p.y+dy;
-              if(nx<0||ny<0||nx>=sw||ny>=sh) continue;
-              const nid=ny*sw+nx;
-              if(edge[nid] && !visited[nid]) push(nx,ny);
+              if (nx<0||ny<0||nx>=sw||ny>=sh) continue;
+              const ni=ny*sw+nx;
+              if (edge[ni] && !visited[ni]) push(nx,ny);
             }
           }
         }
-        if(pts.length<sw*sh*0.002) continue;
-        const hull=convexHull(pts);
-        if(hull.length<4) continue;
-        const quad=extractQuad(hull);
-        if(!quad) continue;
-        const area=polygonArea(quad);
-        if(area>bestArea){ bestArea=area; best=quad; }
+        if (pts.length < sw*sh*0.002) continue;
+
+        const hull = convexHull(pts);
+        if (hull.length < 4) continue;
+        const quad = extractQuad(hull);
+        if (!quad) continue;
+        const area = polygonArea(quad);
+        if (area > bestArea){
+          bestArea=area; bestQuad=quad;
+        }
       }
     }
-    if(!best) return null;
-    const inv=1/scale;
-    const mapped=best.map(p=>({x:p.x*inv,y:p.y*inv}));
+    if (!bestQuad) return null;
+    const inv = 1/scale;
+    const mapped = bestQuad.map(p=>({ x:p.x*inv, y:p.y*inv }));
     return orderQuad(mapped);
-  }catch(e){
+  } catch(e){
     console.warn('autoDetect error', e);
     return null;
   }
 }
-function convexHull(pts){
-  pts=pts.slice().sort((a,b)=> a.x===b.x? a.y-b.y : a.x-b.x);
+function convexHull(points){
+  points = points.slice().sort((a,b)=> a.x===b.x? a.y-b.y : a.x-b.x);
   function cross(o,a,b){ return (a.x-o.x)*(b.y-o.y)-(a.y-o.y)*(b.x-o.x); }
   const lower=[];
-  for(const p of pts){
-    while(lower.length>=2 && cross(lower[lower.length-2],lower[lower.length-1],p)<=0) lower.pop();
+  for (const p of points){
+    while (lower.length>=2 && cross(lower[lower.length-2], lower[lower.length-1], p)<=0) lower.pop();
     lower.push(p);
   }
   const upper=[];
-  for(let i=pts.length-1;i>=0;i--){
-    const p=pts[i];
-    while(upper.length>=2 && cross(upper[upper.length-2],upper[upper.length-1],p)<=0) upper.pop();
+  for (let i=points.length-1;i>=0;i--){
+    const p=points[i];
+    while (upper.length>=2 && cross(upper[upper.length-2], upper[upper.length-1], p)<=0) upper.pop();
     upper.push(p);
   }
   upper.pop(); lower.pop();
   return lower.concat(upper);
 }
-function extractQuad(hull){
-  if(hull.length===4) return hull;
-  let A=null,B=null,maxD=-1;
-  for(let i=0;i<hull.length;i++){
-    for(let j=i+1;j<hull.length;j++){
-      const d=Math.hypot(hull[i].x-hull[j].x, hull[i].y-hull[j].y);
-      if(d>maxD){ maxD=d; A=hull[i]; B=hull[j]; }
-    }
-  }
-  if(!A||!B) return null;
-  let C=null,maxLD=-1;
-  for(const p of hull){
-    if(p===A||p===B) continue;
-    const ld=lineDist(A,B,p);
-    if(ld>maxLD){ maxLD=ld; C=p; }
-  }
-  if(!C) return null;
-  let D=null,maxArea=-1;
-  for(const p of hull){
-    if(p===A||p===B||p===C) continue;
-    const area=polygonArea([A,B,C,p]);
-    if(area>maxArea){ maxArea=area; D=p; }
-  }
-  if(!D) return null;
-  return [A,B,C,D];
-}
+function dist(a,b){ return Math.hypot(a.x-b.x,a.y-b.y); }
 function lineDist(a,b,p){
   const num=Math.abs((b.y-a.y)*p.x - (b.x-a.x)*p.y + b.x*a.y - b.y*a.x);
-  const den=Math.hypot(b.x-a.x, b.y-a.y)||1;
+  const den=Math.hypot(b.x-a.x,b.y-a.y)||1;
   return num/den;
+}
+function extractQuad(hull){
+  if (hull.length===4) return hull;
+  let A=null,B=null,maxD=-1;
+  for (let i=0;i<hull.length;i++){
+    for (let j=i+1;j<hull.length;j++){
+      const d=dist(hull[i], hull[j]);
+      if (d>maxD){ maxD=d; A=hull[i]; B=hull[j]; }
+    }
+  }
+  if (!A||!B) return null;
+  let C=null,maxLD=-1;
+  for (const p of hull){
+    if (p===A||p===B) continue;
+    const ld=lineDist(A,B,p);
+    if (ld>maxLD){ maxLD=ld; C=p; }
+  }
+  if (!C) return null;
+  let D=null,maxArea=-1;
+  for (const p of hull){
+    if (p===A||p===B||p===C) continue;
+    const area=polygonArea([A,B,C,p]);
+    if (area>maxArea){ maxArea=area; D=p; }
+  }
+  if (!D) return null;
+  return [A,B,C,D];
 }
 function polygonArea(pts){
   let a=0;
-  for(let i=0;i<pts.length;i++){
+  for (let i=0;i<pts.length;i++){
     const p1=pts[i], p2=pts[(i+1)%pts.length];
     a+=p1.x*p2.y - p2.x*p1.y;
   }
@@ -449,55 +479,52 @@ function polygonArea(pts){
 function orderQuad(pts){
   let tl,tr,br,bl;
   let minSum=Infinity,maxSum=-Infinity,minDiff=Infinity,maxDiff=-Infinity;
-  for(const p of pts){
-    const s=p.x+p.y,d=p.x-p.y;
-    if(s<minSum){ minSum=s; tl=p; }
-    if(s>maxSum){ maxSum=s; br=p; }
-    if(d>maxDiff){ maxDiff=d; tr=p; }
-    if(d<minDiff){ minDiff=d; bl=p; }
+  for (const p of pts){
+    const s=p.x+p.y, d=p.x-p.y;
+    if (s<minSum){ minSum=s; tl=p; }
+    if (s>maxSum){ maxSum=s; br=p; }
+    if (d>maxDiff){ maxDiff=d; tr=p; }
+    if (d<minDiff){ minDiff=d; bl=p; }
   }
   return [tl,tr,br,bl];
 }
 
 /* ------------------ Homography & Warp ------------------ */
-function computeHomography(srcPts,dstPts){
+function computeHomography(srcPts, dstPts){
   const A=[], b=[];
-  for(let i=0;i<4;i++){
+  for (let i=0;i<4;i++){
     const {x,y}=srcPts[i], {x:u,y:v}=dstPts[i];
     A.push([x,y,1,0,0,0,-u*x,-u*y]); b.push(u);
     A.push([0,0,0,x,y,1,-v*x,-v*y]); b.push(v);
   }
-  const h=solveLinear(A,b);
-  if(!h) return null;
+  const h = solveLinear(A,b);
+  if (!h) return null;
   return [[h[0],h[1],h[2]],[h[3],h[4],h[5]],[h[6],h[7],1]];
 }
 function solveLinear(A,b){
   const n=A.length;
   const M=A.map((r,i)=>r.concat(b[i]));
-  for(let k=0;k<n;k++){
+  for (let k=0;k<n;k++){
     let im=k;
-    for(let i=k+1;i<n;i++) if(Math.abs(M[i][k])>Math.abs(M[im][k])) im=i;
-    if(Math.abs(M[im][k])<1e-12) return null;
+    for (let i=k+1;i<n;i++) if (Math.abs(M[i][k])>Math.abs(M[im][k])) im=i;
+    if (Math.abs(M[im][k])<1e-12) return null;
     [M[k],M[im]]=[M[im],M[k]];
     const piv=M[k][k];
-    for(let j=k;j<=n;j++) M[k][j]/=piv;
-    for(let i=0;i<n;i++){
-      if(i===k) continue;
+    for (let j=k;j<=n;j++) M[k][j]/=piv;
+    for (let i=0;i<n;i++){
+      if (i===k) continue;
       const f=M[i][k];
-      for(let j=k;j<=n;j++) M[i][j]-=f*M[k][j];
+      for (let j=k;j<=n;j++) M[i][j]-=f*M[k][j];
     }
   }
   return M.map(r=>r[n]);
 }
 function invert3x3(m){
-  const a=m[0][0],b=m[0][1],c=m[0][2],
-        d=m[1][0],e=m[1][1],f=m[1][2],
-        g=m[2][0],h=m[2][1],i=m[2][2];
+  const a=m[0][0],b=m[0][1],c=m[0][2], d=m[1][0],e=m[1][1],f=m[1][2], g=m[2][0],h=m[2][1],i=m[2][2];
   const A=e*i-f*h,B=c*h-b*i,C=b*f-c*e;
   const D=f*g-d*i,E=a*i-c*g,F=c*d-a*f;
   const G=d*h-e*g,H=b*g-a*h,I=a*e-b*d;
-  const det=a*A+b*D+c*G;
-  if(Math.abs(det)<1e-12) return null;
+  const det=a*A+b*D+c*G; if (Math.abs(det)<1e-12) return null;
   const inv=1/det;
   return [[A*inv,B*inv,C*inv],[D*inv,E*inv,F*inv],[G*inv,H*inv,I*inv]];
 }
@@ -509,27 +536,27 @@ function warpImageWithHomography(srcCanvas,H,dstW,dstH){
   const out=dstCtx.createImageData(dstW,dstH); const outData=out.data;
   const Hinv=invert3x3(H);
   if(!Hinv){ dstCtx.drawImage(srcCanvas,0,0,dstW,dstH); return dst; }
-  for(let y=0;y<dstH;y++){
-    for(let x=0;x<dstW;x++){
+  for (let y=0;y<dstH;y++){
+    for (let x=0;x<dstW;x++){
       const denom=Hinv[2][0]*x + Hinv[2][1]*y + Hinv[2][2];
       if(!denom) continue;
       const sx=(Hinv[0][0]*x + Hinv[0][1]*y + Hinv[0][2])/denom;
       const sy=(Hinv[1][0]*x + Hinv[1][1]*y + Hinv[1][2])/denom;
       let r=255,g=255,b=255,a=255;
-      if(sx>=0&&sy>=0&&sx<srcW&&sy<srcH){
+      if (sx>=0&&sy>=0&&sx<srcW&&sy<srcH){
         const x0=Math.floor(sx), y0=Math.floor(sy);
         const x1=Math.min(x0+1,srcW-1), y1=Math.min(y0+1,srcH-1);
         const dx=sx-x0, dy=sy-y0;
         const i00=(y0*srcW+x0)*4, i10=(y0*srcW+x1)*4;
         const i01=(y1*srcW+x0)*4, i11=(y1*srcW+x1)*4;
-        function lerp(a,b,t){return a+(b-a)*t;}
         const p00=[srcData[i00],srcData[i00+1],srcData[i00+2],srcData[i00+3]];
         const p10=[srcData[i10],srcData[i10+1],srcData[i10+2],srcData[i10+3]];
         const p01=[srcData[i01],srcData[i01+1],srcData[i01+2],srcData[i01+3]];
         const p11=[srcData[i11],srcData[i11+1],srcData[i11+2],srcData[i11+3]];
+        function lerp(a,b,t){return a+(b-a)*t;}
         const p0=p00.map((v,c)=>lerp(v,p10[c],dx));
         const p1=p01.map((v,c)=>lerp(v,p11[c],dx));
-        const p=p0.map((v,c)=>lerp(v,p1[c],dy));
+        const p = p0.map((v,c)=>lerp(v,p1[c],dy));
         [r,g,b,a]=p;
       }
       const oi=(y*dstW+x)*4;
@@ -541,31 +568,33 @@ function warpImageWithHomography(srcCanvas,H,dstW,dstH){
 }
 
 /* ------------------ Effects ------------------ */
-function applyEffect(canvas,effect){
-  if(effect==='original') return;
+function applyEffect(canvas, effect){
+  if (effect==='original') return;
   const ctx=canvas.getContext('2d');
   const imgd=ctx.getImageData(0,0,canvas.width,canvas.height);
   const d=imgd.data;
-  for(let i=0;i<d.length;i+=4){
-    const r=d[i],g=d[i+1],b=d[i+2];
-    const lum=0.299*r+0.587*g+0.114*b;
+  for (let i=0;i<d.length;i+=4){
+    const r=d[i], g=d[i+1], b=d[i+2];
+    const lum=0.299*r + 0.587*g + 0.114*b;
     d[i]=d[i+1]=d[i+2]=lum;
   }
-  if(effect==='bw'){
+  if (effect==='bw'){
+    // Otsu
     const hist=new Array(256).fill(0);
-    for(let i=0;i<d.length;i+=4) hist[d[i]]++;
+    for (let i=0;i<d.length;i+=4) hist[d[i]]++;
     const total=canvas.width*canvas.height;
-    let sum=0; for(let t=0;t<256;t++) sum+=t*hist[t];
+    let sum=0; for (let t=0;t<256;t++) sum+=t*hist[t];
     let wB=0,sumB=0,varMax=0,th=0;
-    for(let t=0;t<256;t++){
+    for (let t=0;t<256;t++){
       wB+=hist[t]; if(!wB) continue;
       const wF=total-wB; if(!wF) break;
       sumB+=t*hist[t];
-      const mB=sumB/wB, mF=(sum-sumB)/wF;
+      const mB=sumB/wB;
+      const mF=(sum-sumB)/wF;
       const between=wB*wF*(mB-mF)*(mB-mF);
       if(between>varMax){ varMax=between; th=t; }
     }
-    for(let i=0;i<d.length;i+=4){
+    for (let i=0;i<d.length;i+=4){
       const v=d[i]>th?255:0;
       d[i]=d[i+1]=d[i+2]=v;
     }
@@ -573,7 +602,7 @@ function applyEffect(canvas,effect){
   ctx.putImageData(imgd,0,0);
 }
 
-/* ------------------ Cropper ------------------ */
+/* ------------------ Cropper (with edge midpoints & rotation & re-edit) ------------------ */
 function openCropper(baseDataUrl, existing){
   return new Promise((resolve,reject)=>{
     const modal=document.getElementById('cropperModal');
@@ -590,41 +619,52 @@ function openCropper(baseDataUrl, existing){
     modal.style.display='flex';
 
     const baseImg=new Image();
-    let workingCanvas=null, workingImg=new Image();
-    let rotation=existing?.rotation||0;
-
+    let workingCanvas=null;
+    let workingImg=new Image();
+    let rotation = existing?.rotation || 0;
     let imgDraw={dx:0,dy:0,dw:0,dh:0,scale:1};
-    let cornerHandles=[];
+    let cornerHandles=[]; // TL,TR,BR,BL => {u,v}
     let cornerEls=[], edgeEls=[];
-    let draggingType=null, draggingCorner=-1, draggingEdge=-1;
+    let draggingType=null; // 'corner' | 'edge'
+    let draggingCorner=-1, draggingEdge=-1;
     let lastTap=0;
     let autoDone=false;
-    let autoDetecting=false;
 
-    const EDGE_MAP=[{a:0,b:1},{a:1,b:2},{a:2,b:3},{a:3,b:0}];
+    const EDGE_MAP=[
+      {a:0,b:1}, // top
+      {a:1,b:2}, // right
+      {a:2,b:3}, // bottom
+      {a:3,b:0}  // left
+    ];
 
     function ensureCornerEls(){
-      for(let i=0;i<4;i++){
-        if(!cornerEls[i]){
+      for (let i=0;i<4;i++){
+        if (!cornerEls[i]){
           const el=document.createElement('div');
-          el.className='handle'; el.dataset.type='corner'; el.dataset.idx=i;
-          el.addEventListener('pointerdown',ev=>ev.preventDefault());
-          wrapper.appendChild(el); cornerEls[i]=el;
+          el.className='handle';
+          el.dataset.type='corner';
+          el.dataset.idx=i;
+          el.addEventListener('pointerdown', ev=>ev.preventDefault());
+          wrapper.appendChild(el);
+          cornerEls[i]=el;
         }
       }
     }
     function ensureEdgeEls(){
-      for(let i=0;i<4;i++){
-        if(!edgeEls[i]){
+      for (let i=0;i<4;i++){
+        if (!edgeEls[i]){
           const el=document.createElement('div');
-          el.className='edge-handle'; el.dataset.type='edge'; el.dataset.idx=i;
-          el.addEventListener('pointerdown',ev=>ev.preventDefault());
-          wrapper.appendChild(el); edgeEls[i]=el;
+          el.className='edge-handle';
+          el.dataset.type='edge';
+          el.dataset.idx=i;
+          el.addEventListener('pointerdown', ev=>ev.preventDefault());
+          wrapper.appendChild(el);
+          edgeEls[i]=el;
         }
       }
     }
-    function positionCorners(){
-      for(let i=0;i<4;i++){
+    function positionCornerEls(){
+      for (let i=0;i<4;i++){
         const h=cornerHandles[i];
         const x=imgDraw.dx + h.u*imgDraw.dw;
         const y=imgDraw.dy + h.v*imgDraw.dh;
@@ -632,8 +672,8 @@ function openCropper(baseDataUrl, existing){
         cornerEls[i].style.top =y+'px';
       }
     }
-    function positionEdges(){
-      for(let i=0;i<4;i++){
+    function positionEdgeEls(){
+      for (let i=0;i<4;i++){
         const {a,b}=EDGE_MAP[i];
         const ax=imgDraw.dx + cornerHandles[a].u*imgDraw.dw;
         const ay=imgDraw.dy + cornerHandles[a].v*imgDraw.dh;
@@ -646,37 +686,43 @@ function openCropper(baseDataUrl, existing){
     function redraw(){
       ctx.save(); ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,canvas.width,canvas.height); ctx.restore();
       ctx.drawImage(workingImg,0,0,workingImg.width,workingImg.height,imgDraw.dx,imgDraw.dy,imgDraw.dw,imgDraw.dh);
-      // Mask
+
+      // mask
       ctx.save();
-      ctx.fillStyle='rgba(0,0,0,.45)'; ctx.fillRect(0,0,canvas.width,canvas.height);
+      ctx.fillStyle='rgba(0,0,0,.45)';
+      ctx.fillRect(0,0,canvas.width,canvas.height);
       ctx.globalCompositeOperation='destination-out';
       ctx.beginPath();
-      for(let i=0;i<4;i++){
+      for (let i=0;i<4;i++){
         const h=cornerHandles[i];
-        const x=imgDraw.dx + h.u*imgDraw.dw, y=imgDraw.dy + h.v*imgDraw.dh;
-        if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+        const x=imgDraw.dx + h.u*imgDraw.dw;
+        const y=imgDraw.dy + h.v*imgDraw.dh;
+        if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
       }
       ctx.closePath(); ctx.fill();
       ctx.restore();
-      ctx.lineWidth=3; ctx.strokeStyle='#26a0ff';
+
+      ctx.lineWidth=3;
+      ctx.strokeStyle='#26a0ff';
       ctx.beginPath();
-      for(let i=0;i<4;i++){
+      for (let i=0;i<4;i++){
         const h=cornerHandles[i];
-        const x=imgDraw.dx + h.u*imgDraw.dw, y=imgDraw.dy + h.v*imgDraw.dh;
-        if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+        const x=imgDraw.dx + h.u*imgDraw.dw;
+        const y=imgDraw.dy + h.v*imgDraw.dh;
+        if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
       }
       ctx.closePath(); ctx.stroke();
       updateSizeHint();
     }
     function updateSizeHint(){
-      function dist(a,b){
+      function distPt(a,b){
         const ax=a.u*workingImg.width, ay=a.v*workingImg.height;
         const bx=b.u*workingImg.width, by=b.v*workingImg.height;
         return Math.hypot(ax-bx, ay-by);
       }
-      const w=((dist(cornerHandles[0],cornerHandles[1]) + dist(cornerHandles[2],cornerHandles[3]))/2)|0;
-      const h=((dist(cornerHandles[1],cornerHandles[2]) + dist(cornerHandles[3],cornerHandles[0]))/2)|0;
-      sizeHint.textContent = `約 ${w}×${h}px`;
+      const wAvg=((distPt(cornerHandles[0],cornerHandles[1]) + distPt(cornerHandles[2],cornerHandles[3]))/2)|0;
+      const hAvg=((distPt(cornerHandles[1],cornerHandles[2]) + distPt(cornerHandles[3],cornerHandles[0]))/2)|0;
+      sizeHint.textContent=`約 ${wAvg}×${hAvg}px`;
     }
     function defaultHandles(){
       const inset=0.06;
@@ -688,29 +734,48 @@ function openCropper(baseDataUrl, existing){
       ];
     }
     function setFromQuad(quad){
-      cornerHandles=quad.map(p=>({u:p.x/workingImg.width, v:p.y/workingImg.height}));
+      cornerHandles = quad.map(p=>({u:p.x/workingImg.width, v:p.y/workingImg.height}));
     }
-    function applyExisting(){
-      if(!existing || !existing.cropRelPoints || existing.cropRelPoints.length!==4) return false;
+    function applyExistingPoints(){
+      if (!existing || !existing.cropRelPoints || existing.cropRelPoints.length!==4) return false;
       cornerHandles = existing.cropRelPoints.map(p=>({u:p.u,v:p.v}));
       effectSel.value = existing.effect || 'original';
       rotation = existing.rotation || 0;
       return true;
     }
-    function updateRotationIndicator(){
-      rotInd.textContent = rotation? `旋轉:${rotation}°` : '';
+    function attemptAutoDetect(){
+      statusEl.textContent='偵測中...';
+      setTimeout(()=>{
+        const tmp = new Image();
+        tmp.onload=()=>{
+          const quad = autoDetectDocumentCorners(tmp);
+          if (quad){
+            setFromQuad(quad);
+            statusEl.textContent='自動偵測 ✔';
+          } else {
+            statusEl.textContent='偵測失敗';
+            if (!autoDone) { defaultHandles(); }
+          }
+          positionCornerEls(); positionEdgeEls(); redraw();
+          autoDone=true;
+        };
+        tmp.src=workingImg.src;
+      }, 30);
     }
 
     function layoutWorking(){
-      const winW=Math.min(window.innerWidth*0.92,1200);
-      const winH=Math.min(window.innerHeight*0.70,1100);
-      const fit=Math.min(winW/workingImg.width, winH/workingImg.height,1);
+      const winW=Math.min(window.innerWidth*0.92, 1200);
+      const winH=Math.min(window.innerHeight*0.70, 1100);
+      const fit=Math.min(winW/workingImg.width, winH/workingImg.height, 1);
       const dispW=Math.max(320, Math.round(workingImg.width*fit));
       const dispH=Math.max(240, Math.round(workingImg.height*fit));
       const dpr=window.devicePixelRatio||1;
-      canvas.style.width=dispW+'px'; canvas.style.height=dispH+'px';
-      canvas.width=Math.round(dispW*dpr); canvas.height=Math.round(dispH*dpr);
-      ctx=canvas.getContext('2d'); ctx.setTransform(dpr,0,0,dpr,0,0);
+      canvas.style.width=dispW+'px';
+      canvas.style.height=dispH+'px';
+      canvas.width=Math.round(dispW*dpr);
+      canvas.height=Math.round(dispH*dpr);
+      ctx=canvas.getContext('2d');
+      ctx.setTransform(dpr,0,0,dpr,0,0);
       const scale=Math.min(dispW/workingImg.width, dispH/workingImg.height);
       const dw=Math.round(workingImg.width*scale);
       const dh=Math.round(workingImg.height*scale);
@@ -718,13 +783,20 @@ function openCropper(baseDataUrl, existing){
       const dy=Math.round((dispH-dh)/2);
       imgDraw={dx,dy,dw,dh,scale};
     }
+    function updateRotationIndicator(){
+      rotInd.textContent = rotation ? `旋轉:${rotation}°` : '';
+    }
 
-    function buildWorkingCanvas(preservePoints=false, prevHandles=null, prevW=null, prevH=null, deltaRotation=0){
+    function buildWorkingFromRotation(){
+      // baseImg -> workingCanvas rotated
       const w=baseImg.naturalWidth, h=baseImg.naturalHeight;
       workingCanvas=document.createElement('canvas');
       const wctx=workingCanvas.getContext('2d');
-      if(rotation===0||rotation===180){ workingCanvas.width=w; workingCanvas.height=h; }
-      else { workingCanvas.width=h; workingCanvas.height=w; }
+      if (rotation===0||rotation===180){
+        workingCanvas.width=w; workingCanvas.height=h;
+      } else {
+        workingCanvas.width=h; workingCanvas.height=w;
+      }
       wctx.save();
       switch(rotation){
         case 0: wctx.drawImage(baseImg,0,0); break;
@@ -736,138 +808,71 @@ function openCropper(baseDataUrl, existing){
       workingImg.onload=()=>{
         layoutWorking();
         ensureCornerEls(); ensureEdgeEls();
-
-        if (preservePoints && prevHandles){
-          // 旋轉後保留點：把原像素點旋轉到新座標再換成 u/v
-          // 先把舊相對座標 -> 舊實際像素 -> 逆時針/順時針旋轉映射
-          const rotated = rotatePointsAfterImageRotate(prevHandles, prevW, prevH, deltaRotation);
-          cornerHandles = rotated.map(p=>({u:p.x/workingImg.width, v:p.y/workingImg.height}));
-          positionCorners(); positionEdges(); redraw();
-          statusEl.textContent='已旋轉(保留點)';
+        if (!applyExistingPoints()){
+          defaultHandles();
+          attemptAutoDetect();
         } else {
-          if (!applyExisting()){
-            defaultHandles();
-            attemptAutoDetect(); // 首次
-          } else {
-            positionCorners(); positionEdges(); redraw();
-          }
+          positionCornerEls(); positionEdgeEls(); redraw();
         }
         updateRotationIndicator();
       };
       workingImg.src=workingCanvas.toDataURL('image/jpeg',0.92);
     }
 
-    function rotatePointsAfterImageRotate(prevHandles, prevW, prevH, deltaDeg){
-      // prevHandles: [{u,v}], 依舊圖 (prevW, prevH)
-      // 旋轉後 workingImg 可能 w/h 交換
-      // deltaDeg = +90 / -90 / 180
-      const pts = prevHandles.map(h=>({ x:h.u*prevW, y:h.v*prevH }));
-      const out=[];
-      const cx=prevW/2, cy=prevH/2;
-      for(const p of pts){
-        const x=p.x - cx, y=p.y - cy;
-        let rx=x, ry=y;
-        switch(deltaDeg){
-          case 90:  rx= y;  ry=-x; break;    // 順時針
-          case -90: rx=-y;  ry= x; break;
-          case 180: rx=-x;  ry=-y; break;
-        }
-        let nx=rx+cx, ny=ry+cy;
-        // 若結果 swap w/h 時需重新映射
-        if (deltaDeg===90 || deltaDeg===-90){
-          // 90 或 270 度後的畫布寬高對調：newW=prevH, newH=prevW
-          const newW=prevH, newH=prevW;
-          out.push({ x:nx, y:ny, newW, newH });
-        } else {
-          out.push({ x:nx, y:ny, newW:prevW, newH:prevH });
-        }
-      }
-      // 調整 u/v
-      return out.map(o=>({ x:o.x, y:o.y, u:o.x/o.newW, v:o.y/o.newH }));
-    }
-
-    function attemptAutoDetect(force=false){
-      if (autoDetecting && !force) return;
-      autoDetecting=true;
-      statusEl.textContent='偵測中...';
-      setTimeout(()=>{
-        try{
-          const tmp=new Image();
-          tmp.onload=()=>{
-            const quad=autoDetectDocumentCorners(tmp);
-            if(quad){
-              setFromQuad(quad);
-              statusEl.textContent='自動偵測 ✔';
-            } else {
-              statusEl.textContent = autoDone ? '未找到文件' : '偵測失敗(預設)';
-              if(!autoDone) defaultHandles();
-            }
-            positionCorners(); positionEdges(); redraw();
-            autoDone=true;
-            autoDetecting=false;
-          };
-          tmp.src=workingImg.src;
-        }catch(e){
-          statusEl.textContent='偵測錯誤';
-          autoDetecting=false;
-        }
-      }, 30);
-    }
-
     function rotate(delta){
-      const prevRotation = rotation;
-      rotation=(rotation+delta+360)%360;
-      const deltaRot = (rotation - prevRotation + 360)%360;
-      const deltaDeg = (deltaRot===270)? -90 : deltaRot; // 270 當成 -90
-      const preserve = CONFIG.ROTATE_KEEP_POINTS && cornerHandles.length===4;
-      const prevHandlesCopy = cornerHandles.map(h=>({u:h.u,v:h.v}));
-      const prevW=workingImg.width, prevH=workingImg.height;
+      rotation = (rotation + delta + 360) % 360;
+      // 旋轉後重建工作圖。簡化：重設角點再自動偵測（保留 v5 行為）
       autoDone=false;
-      buildWorkingCanvas(preserve, prevHandlesCopy, prevW, prevH, deltaDeg);
+      buildWorkingFromRotation();
+      statusEl.textContent='已旋轉';
     }
 
-    // Pointer events
+    // Pointer interactions
     function pointerDown(e){
-      const t=e.target;
-      if(t.dataset && t.dataset.type==='corner'){
-        draggingType='corner'; draggingCorner=parseInt(t.dataset.idx);
-      } else if(t.dataset && t.dataset.type==='edge'){
-        draggingType='edge'; draggingEdge=parseInt(t.dataset.idx);
+      const t = e.target;
+      if (t.dataset && t.dataset.type==='corner'){
+        draggingType='corner';
+        draggingCorner=parseInt(t.dataset.idx);
+      } else if (t.dataset && t.dataset.type==='edge'){
+        draggingType='edge';
+        draggingEdge=parseInt(t.dataset.idx);
       } else {
+        // 嘗試抓最近 corner
         const rect=canvas.getBoundingClientRect();
         const cx=e.clientX-rect.left, cy=e.clientY-rect.top;
         let best=-1,bestD=Infinity;
-        for(let i=0;i<4;i++){
+        for (let i=0;i<4;i++){
           const px=imgDraw.dx + cornerHandles[i].u*imgDraw.dw;
           const py=imgDraw.dy + cornerHandles[i].v*imgDraw.dh;
           const d=Math.hypot(px-cx,py-cy);
-          if(d<bestD){ bestD=d; best=i; }
+          if (d<bestD){ bestD=d; best=i; }
         }
-        if(bestD<=38){ draggingType='corner'; draggingCorner=best; }
+        if (bestD<=38){ draggingType='corner'; draggingCorner=best; }
         else {
           const now=Date.now();
-          if(now-lastTap<300){
-            defaultHandles(); positionCorners(); positionEdges(); redraw();
+          if (now-lastTap<300){
+            defaultHandles(); positionCornerEls(); positionEdgeEls(); redraw();
             statusEl.textContent='已重設';
           }
           lastTap=now;
           return;
         }
       }
-      try{ wrapper.setPointerCapture(e.pointerId); }catch(_){}
+      try { wrapper.setPointerCapture(e.pointerId); } catch(_){}
       window.addEventListener('pointermove', pointerMove, {passive:false});
       window.addEventListener('pointerup', pointerUp, {passive:false});
       e.preventDefault();
     }
     function pointerMove(e){
       const rect=canvas.getBoundingClientRect();
-      const x=e.clientX-rect.left, y=e.clientY-rect.top;
-      if(draggingType==='corner' && draggingCorner>-1){
-        const u=(x-imgDraw.dx)/imgDraw.dw;
-        const v=(y-imgDraw.dy)/imgDraw.dh;
+      const x=e.clientX-rect.left;
+      const y=e.clientY-rect.top;
+      if (draggingType==='corner' && draggingCorner>-1){
+        const u=(x - imgDraw.dx)/imgDraw.dw;
+        const v=(y - imgDraw.dy)/imgDraw.dh;
         cornerHandles[draggingCorner].u=Math.max(0,Math.min(1,u));
         cornerHandles[draggingCorner].v=Math.max(0,Math.min(1,v));
-      } else if(draggingType==='edge' && draggingEdge>-1){
+      } else if (draggingType==='edge' && draggingEdge>-1){
         const {a,b}=EDGE_MAP[draggingEdge];
         const ax=imgDraw.dx + cornerHandles[a].u*imgDraw.dw;
         const ay=imgDraw.dy + cornerHandles[a].v*imgDraw.dh;
@@ -878,36 +883,39 @@ function openCropper(baseDataUrl, existing){
         let nx=-ey/len, ny=ex/len;
         const mx=(ax+bx)/2, my=(ay+by)/2;
         const dxMove=x-mx, dyMove=y-my;
-        const distAlong=dxMove*nx + dyMove*ny;
-        const shiftX=nx*distAlong, shiftY=ny*distAlong;
-        const du=shiftX/imgDraw.dw, dv=shiftY/imgDraw.dh;
+        const distAlong = dxMove*nx + dyMove*ny;
+        const shiftX = nx*distAlong, shiftY=ny*distAlong;
+        const du = shiftX/imgDraw.dw, dv=shiftY/imgDraw.dh;
         function apply(i){
-          cornerHandles[i].u=Math.max(0,Math.min(1, cornerHandles[i].u+du));
-          cornerHandles[i].v=Math.max(0,Math.min(1, cornerHandles[i].v+dv));
+          cornerHandles[i].u=Math.max(0,Math.min(1, cornerHandles[i].u + du));
+          cornerHandles[i].v=Math.max(0,Math.min(1, cornerHandles[i].v + dv));
         }
         apply(a); apply(b);
       }
-      positionCorners(); positionEdges(); redraw();
+      positionCornerEls(); positionEdgeEls(); redraw();
       e.preventDefault();
     }
     function pointerUp(e){
       draggingType=null; draggingCorner=-1; draggingEdge=-1;
       window.removeEventListener('pointermove', pointerMove);
       window.removeEventListener('pointerup', pointerUp);
-      try{ wrapper.releasePointerCapture(e.pointerId); }catch(_){}
+      try { wrapper.releasePointerCapture(e.pointerId); } catch(_){}
     }
 
-    document.getElementById('autoDetectBtn').onclick=()=>attemptAutoDetect(true);
     document.getElementById('cropResetBtn').onclick=()=>{
-      defaultHandles(); positionCorners(); positionEdges(); redraw();
-      statusEl.textContent='已重設';
+      defaultHandles(); positionCornerEls(); positionEdgeEls(); redraw(); statusEl.textContent='已重設';
     };
-    document.getElementById('cropCancelBtn').onclick=()=>{ cleanup(); reject('cancel'); };
+    document.getElementById('autoDetectBtn').onclick=()=>{
+      autoDone=false; attemptAutoDetect();
+    };
+    document.getElementById('cropCancelBtn').onclick=()=>{
+      cleanup(); reject('cancel');
+    };
     rotateLeft.onclick=()=>rotate(-90);
     rotateRight.onclick=()=>rotate(90);
 
     document.getElementById('cropConfirmBtn').onclick=()=>{
-      const srcPts = cornerHandles.map(h=>({ x:Math.round(h.u*workingImg.width), y:Math.round(h.v*workingImg.height) }));
+      const srcPts = cornerHandles.map(h=>({ x: Math.round(h.u*workingImg.width), y: Math.round(h.v*workingImg.height) }));
       function dd(a,b){ return Math.hypot(a.x-b.x,a.y-b.y); }
       const wA=dd(srcPts[2],srcPts[3]), wB=dd(srcPts[1],srcPts[0]);
       const hA=dd(srcPts[1],srcPts[2]), hB=dd(srcPts[0],srcPts[3]);
@@ -922,43 +930,32 @@ function openCropper(baseDataUrl, existing){
       const warpCanvas=warpImageWithHomography(srcCanvas,H,dstW,dstH);
       applyEffect(warpCanvas, effectSel.value);
       const relPoints = cornerHandles.map(h=>({u:h.u,v:h.v}));
-      const finalRotation=rotation;
+      const finalRotation = rotation;
       cleanup();
       resolve({ croppedCanvas: warpCanvas, relPoints, effect: effectSel.value, rotation: finalRotation });
     };
 
     function cleanup(){
       modal.style.display='none';
-      [...cornerEls,...edgeEls].forEach(el=>{ if(el && el.parentNode) el.parentNode.removeChild(el); });
+      [...cornerEls, ...edgeEls].forEach(el=>{ if (el && el.parentNode) el.parentNode.removeChild(el); });
       cornerEls=[]; edgeEls=[];
       wrapper.removeEventListener('pointerdown', pointerDown);
     }
 
-    baseImg.onload=()=>{ buildWorkingCanvas(false,null,null,null,0); };
+    baseImg.onload=()=>{ buildWorkingFromRotation(); };
     baseImg.onerror=()=>{ modal.style.display='none'; reject('img_load_error'); };
     baseImg.src=baseDataUrl;
 
-    // 將 pointer 綁定放在成功建立後（避免早點擊）
-    // 實際是在 buildWorkingCanvas 的 workingImg.onload 內 layout 後綁；這裡先預備
-    function attachPointerAfterReady(){
-      wrapper.addEventListener('pointerdown', pointerDown, {passive:false});
-    }
-    // 用 MutationObserver 或 setTimeout 到 workingImg.onload 裡處理
-    const observer=setInterval(()=>{
-      if(cornerEls.length===4){
-        attachPointerAfterReady();
-        clearInterval(observer);
-      }
-    },50);
+    wrapper.addEventListener('pointerdown', pointerDown, {passive:false});
   });
 }
 
 /* ------------------ Resize pipeline ------------------ */
-function createResizedCanvas(img,maxDim){
+function createResizedCanvas(img, maxDim){
   const r=img.width/img.height;
   let w=img.width,h=img.height;
-  if(w>h){ if(w>maxDim){ w=maxDim; h=Math.round(w/r);} }
-  else { if(h>maxDim){ h=maxDim; w=Math.round(h*r);} }
+  if (w>h){ if (w>maxDim){ w=maxDim; h=Math.round(w/r);} }
+  else { if (h>maxDim){ h=maxDim; w=Math.round(h*r);} }
   const c=document.createElement('canvas'); c.width=w; c.height=h;
   const ctx=c.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,w,h);
   ctx.drawImage(img,0,0,img.width,img.height,0,0,w,h);
@@ -971,8 +968,8 @@ function processCroppedCanvas(cropped){
       const full=createResizedCanvas(tmp, CONFIG.FULL_MAX_DIM);
       const fullUrl=full.toDataURL('image/jpeg', CONFIG.IMAGE_QUALITY);
       const preview=createResizedCanvas(tmp, CONFIG.PREVIEW_MAX_WIDTH);
-      const previewUrl=preview.toDataURL('image/jpeg',0.75);
-      res({fullUrl, previewUrl, w:full.width, h:full.height});
+      const previewUrl=preview.toDataURL('image/jpeg', 0.75);
+      res({ fullUrl, previewUrl, w:full.width, h:full.height });
     };
     tmp.src=cropped.toDataURL('image/jpeg',0.95);
   });
@@ -980,79 +977,85 @@ function processCroppedCanvas(cropped){
 
 /* ------------------ File Handling ------------------ */
 function handleFiles(list){
-  if(!list||!list.length) return;
+  if (!list || !list.length) return;
   document.getElementById('loading').style.display='';
-  let i=0;
+  let idx=0;
   (function next(){
-    if(i>=list.length){
+    if (idx>=list.length){
       document.getElementById('loading').style.display='none';
       return;
     }
-    const f=list[i++];
+    const f=list[idx++];
     if(!f.type.startsWith('image/')) return next();
     (async ()=>{
-      try{
-        const norm=await loadImageNormalized(f);
-        editingImageId=null;
-        const { croppedCanvas, relPoints, effect, rotation } = await openCropper(norm,null);
-        const processed=await processCroppedCanvas(croppedCanvas);
+      try {
+        const norm = await loadImageNormalized(f);
+        editingImageId = null;
+        const { croppedCanvas, relPoints, effect, rotation } = await openCropper(norm, null);
+        const processed = await processCroppedCanvas(croppedCanvas);
         images.push({
-          id:Date.now().toString(36)+Math.random().toString(36).slice(2,10),
-          originalDataUrl:norm,
-          rotation,
-          cropRelPoints:relPoints,
+          id: Date.now().toString(36)+Math.random().toString(36).slice(2,10),
+          originalDataUrl: norm,
+            rotation,
+          cropRelPoints: relPoints,
           effect,
-          fullDataUrl:processed.fullUrl,
-          previewDataUrl:processed.previewUrl,
-          w:processed.w, h:processed.h
+          fullDataUrl: processed.fullUrl,
+          previewDataUrl: processed.previewUrl,
+          w: processed.w, h: processed.h
         });
         updatePreview();
-      }catch(e){
-        if(e!=='cancel') console.warn(e);
-      }finally{ next(); }
+      } catch(e){
+        if (e!=='cancel') console.warn(e);
+      } finally {
+        next();
+      }
     })();
   })();
 }
 document.getElementById('cameraInput').addEventListener('change', e=>{
-  handleFiles(e.target.files); e.target.value='';
+  handleFiles(e.target.files);
+  e.target.value='';
 });
 document.getElementById('fileInput').addEventListener('change', e=>{
-  handleFiles(e.target.files); e.target.value='';
+  handleFiles(e.target.files);
+  e.target.value='';
 });
 
 /* ------------------ Re-edit ------------------ */
 function reEditImage(id){
-  const item=images.find(x=>x.id===id);
-  if(!item) return;
-  editingImageId=id;
+  const item = images.find(i=>i.id===id);
+  if (!item) return;
+  editingImageId = id;
   openCropper(item.originalDataUrl, item)
     .then(async ({croppedCanvas, relPoints, effect, rotation})=>{
-      const processed=await processCroppedCanvas(croppedCanvas);
-      item.fullDataUrl=processed.fullUrl;
-      item.previewDataUrl=processed.previewUrl;
-      item.w=processed.w; item.h=processed.h;
-      item.cropRelPoints=relPoints;
-      item.effect=effect;
-      item.rotation=rotation;
+      const processed = await processCroppedCanvas(croppedCanvas);
+      item.fullDataUrl = processed.fullUrl;
+      item.previewDataUrl = processed.previewUrl;
+      item.w = processed.w; item.h = processed.h;
+      item.cropRelPoints = relPoints;
+      item.effect = effect;
+      item.rotation = rotation;
       updatePreview();
     })
-    .catch(err=>{ if(err!=='cancel') console.warn(err); });
+    .catch(err=>{
+      if (err!=='cancel') console.warn(err);
+    });
 }
 
 /* ------------------ Preview UI ------------------ */
 function updatePreview(){
-  const c=document.getElementById('preview');
-  c.innerHTML='';
+  const container=document.getElementById('preview');
+  container.innerHTML='';
   images.forEach((o,idx)=>{
     const div=document.createElement('div');
     div.className='thumb';
     div.title='點擊重新裁切';
     div.onclick=()=>reEditImage(o.id);
 
-    const order=document.createElement('div');
-    order.className='order-label';
-    order.textContent=idx+1;
-    div.appendChild(order);
+    const label=document.createElement('div');
+    label.className='order-label';
+    label.textContent = idx+1;
+    div.appendChild(label);
 
     const img=document.createElement('img');
     img.src=o.previewDataUrl;
@@ -1063,23 +1066,23 @@ function updatePreview(){
     del.textContent='X';
     del.onclick=(e)=>{
       e.stopPropagation();
-      images=images.filter(x=>x.id!==o.id);
+      images = images.filter(x=>x.id!==o.id);
       updatePreview();
     };
     div.appendChild(del);
 
-    c.appendChild(div);
+    container.appendChild(div);
   });
   updateStorageInfo();
 }
 function updateStorageInfo(){
-  document.getElementById('storageInfo').textContent=`目前圖片數量：${images.length}`;
+  document.getElementById('storageInfo').textContent = `目前圖片數量：${images.length}`;
 }
 
-/* ------------------ Simple Actions ------------------ */
+/* ------------------ Utilities ------------------ */
 function clearAllImages(){
-  if(!images.length) return;
-  if(confirm('確定刪除全部圖片？')){
+  if (!images.length) return;
+  if (confirm('確定刪除全部圖片？')){
     images=[]; updatePreview();
   }
 }
@@ -1090,11 +1093,13 @@ function getPdfFilename(){
   return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}_轉檔.pdf`;
 }
 function generatePDF(){
-  if(!images.length){ alert('請先加入圖片'); return; }
+  if (!images.length){ alert('請先加入圖片'); return; }
   const firstLandscape = images[0].w > images[0].h;
-  const pdf=new jsPDF({unit:'pt', format:'a4', orientation:firstLandscape?'landscape':'portrait'});
+  const pdf = new jsPDF({unit:'pt', format:'a4', orientation:firstLandscape?'landscape':'portrait'});
   images.forEach((o,idx)=>{
-    if(idx>0) pdf.addPage('a4', (o.w>o.h)?'landscape':'portrait');
+    if (idx>0){
+      pdf.addPage('a4', (o.w>o.h)?'landscape':'portrait');
+    }
     const pw=pdf.internal.pageSize.getWidth(), ph=pdf.internal.pageSize.getHeight();
     const ratio=Math.min(pw/o.w, ph/o.h);
     const w=o.w*ratio, h=o.h*ratio;
