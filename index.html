@@ -550,9 +550,39 @@ function openCropper(dataUrl, options={}){
         edgeEls[i].style.top =((ay+by)/2)+'px';
       }
     }
+
+    // *** MODIFIED FUNCTION ***
     function redraw(){
       ctx.save(); ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,canvas.width,canvas.height); ctx.restore();
       ctx.drawImage(workingImg,0,0,workingImg.width,workingImg.height, imgDraw.dx,imgDraw.dy,imgDraw.dw,imgDraw.dh);
+      
+      // *** NEW: 繪製 A4 比例參考框 ***
+      if (workingImg.width > 0) {
+        const isPortrait = workingImg.height > workingImg.width;
+        const a4Ratio = isPortrait ? (1 / Math.sqrt(2)) : Math.sqrt(2); // width / height
+        const containerRatio = imgDraw.dw / imgDraw.dh;
+        
+        let guideW, guideH;
+        if (a4Ratio > containerRatio) {
+          // A4 比例比容器更「寬」，以容器寬度為基準
+          guideW = imgDraw.dw;
+          guideH = guideW / a4Ratio;
+        } else {
+          // A4 比例比容器更「高」，以容器高度為基準
+          guideH = imgDraw.dh;
+          guideW = guideH * a4Ratio;
+        }
+
+        const guideX = imgDraw.dx + (imgDraw.dw - guideW) / 2;
+        const guideY = imgDraw.dy + (imgDraw.dh - guideH) / 2;
+
+        ctx.strokeStyle = 'rgba(255, 255, 0, 0.7)'; // 黃色半透明
+        ctx.lineWidth = 2;
+        ctx.setLineDash([8, 6]); // 虛線
+        ctx.strokeRect(guideX, guideY, guideW, guideH);
+        ctx.setLineDash([]); // 重置虛線
+      }
+      
       ctx.lineWidth=2; ctx.strokeStyle='rgba(25,118,210,0.95)';
       ctx.beginPath();
       for (let i=0;i<4;i++){
@@ -562,6 +592,7 @@ function openCropper(dataUrl, options={}){
       }
       ctx.closePath(); ctx.stroke();
     }
+    
     function setDefaultHandles(){
       const inset=0.06;
       handles=[
@@ -1006,6 +1037,7 @@ function generatePDF() {
         pageH = A4_HEIGHT_PT;
       }
 
+      // 維持置中、確保圖片完整的邏輯
       const ratio = Math.min(pageW / img.w, pageH / img.h);
       const scaledW = img.w * ratio;
       const scaledH = img.h * ratio;
