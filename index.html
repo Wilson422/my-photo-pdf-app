@@ -1,314 +1,325 @@
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
-<meta charset="utf-8" />
+<meta charset="utf--8" />
 <meta name="viewport" content="width=device-width,initial-scale=1.0" />
-<title>文件拍照轉 PDF（裁切 / A4 引導 / 雙指縮放）</title>
+<title>文件拍照轉 PDF（自動偵測 + 邊中拖曳 + 正確方向 + 手動旋轉 + 可再次裁切）</title>
 <style>
-  body {
-    font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Noto Sans",sans-serif;
-    margin:12px;
-    background:#f7f7f7;
-    line-height:1.5;
-  }
-  h2 { margin:0 0 .4em; font-size:1.35em; }
-  .actions {
-    display:flex; flex-wrap:wrap; gap:.7em; align-items:center; margin-bottom:.9em;
-  }
+  body { font-family: Arial,"Noto Sans TC",sans-serif; margin:1.2em; background:#fff; }
+  h2 { margin-top:0; }
+  .actions { display:flex; flex-wrap:wrap; gap:.5em; align-items:center; margin-bottom:.6em; }
   .actions input[type=file]{ display:none; }
-  .actions button {
-    background:#fff; border:1px solid #ccc; padding:.55em .9em; border-radius:8px; cursor:pointer;
-    font-size:.95em; line-height:1.1;
-  }
-  .actions button:hover { background:#f0f0f0; }
-  .actions button:active { background:#e2e2e2; }
-  button.danger { background:#ffecec; border-color:#f3b5b5; color:#b40000; }
-  button.danger:hover { background:#ffdede; }
-  #loading { display:none; font-size:.85em; font-weight:bold; color:#003; }
-  #storageInfo { font-size:.85em; color:#666; margin-top:-4px; }
-  #preview { display:flex; flex-wrap:wrap; gap:10px; margin-top:.7em; }
-  .thumb {
-    position:relative; width:140px; background:#fff; border:1px solid #ddd;
-    border-radius:10px; padding:6px 6px 30px; box-sizing:border-box; cursor:pointer;
-  }
-  .thumb img { width:100%; height:100px; object-fit:cover; border-radius:6px; }
-  .order-label {
-    position:absolute; top:6px; left:6px; background:#0078d7; color:#fff;
-    font-size:12px; padding:3px 6px; border-radius:6px; font-weight:600;
-  }
-  .remove-btn {
-    position:absolute; top:6px; right:6px; background:#ff4545; color:#fff;
-    border:none; font-size:12px; padding:3px 6px; border-radius:6px; cursor:pointer;
-  }
-  .remove-btn:hover { background:#e53636; }
+  .actions button { background:#f5f5f5; border:none; padding:.5em .9em; font-size:.92em; border-radius:8px; cursor:pointer; }
+  .actions button:hover { background:#eaeaea; }
+  button.danger { background:#ffecec; color:#b80000; }
+  #loading { display:none; font-size:.85em; color:#004; font-weight:bold; margin-left:.6em; }
+  #storageInfo { font-size:.88em; color:#666; margin:.4em 0; }
+  #preview { display:flex; flex-wrap:wrap; gap:10px; margin-top:.6em; }
 
-  /* Modal */
-  #cropperModal {
-    position:fixed; inset:0; background:rgba(0,0,0,0.78);
-    display:none; z-index:9999;
-    /* Use flex full screen */
-    display:flex; flex-direction:column;
-  }
-  #cropperModal.active { display:flex; }
-  #cropHeader {
-    background:#fff; padding:6px 10px; font-size:.85em; text-align:center;
-    box-shadow:0 2px 4px rgba(0,0,0,.08);
-  }
-  #cropMain {
-    flex:1; display:flex; flex-direction:column; min-height:0;
-    background:#222;
-  }
-  #canvasStageWrapper {
-    flex:1; position:relative; min-height:0; overflow:hidden;
-    display:flex; align-items:center; justify-content:center;
-    background:#111;
-  }
-  canvas#cropCanvas {
-    touch-action:none;
-    background:#333;
-    border:1px solid #444;
-    max-width:100%;
-    max-height:100%;
-  }
-  .handle {
-    position:absolute;
-    width:30px; height:30px;
-    margin:-15px 0 0 -15px;
-    background:#0d79ff;
-    border:3px solid #fff;
-    border-radius:50%;
-    box-shadow:0 3px 8px rgba(0,0,0,.45);
-    cursor:grab;
-    touch-action:none;
-  }
-  .handle:active { cursor:grabbing; }
-  #cropFooter {
-    background:#fff; padding:8px 10px;
-    box-shadow:0 -2px 4px rgba(0,0,0,.08);
-  }
-  #cropControls {
-    display:flex; flex-wrap:wrap; gap:.6em; align-items:center; justify-content:center;
-    margin-bottom:.5em;
-  }
-  #cropControls select, #cropControls button {
-    font-size:.9em; padding:.55em .8em; border-radius:7px;
-    border:1px solid #ccc; background:#fafafa; cursor:pointer;
-  }
-  #cropControls button:hover { background:#eee; }
-  #cropButtons {
-    display:flex; gap:.7em; justify-content:center; flex-wrap:wrap;
-  }
-  #cropButtons button {
-    font-size:.95em; padding:.65em 1.1em; border-radius:8px; border:1px solid #ccc; background:#fff; cursor:pointer;
-  }
-  #cropConfirmBtn {
-    background:#0078d7; border-color:#0078d7; color:#fff; font-weight:600;
-  }
-  #cropConfirmBtn:hover { background:#0269ba; }
-  #cropCancelBtn { background:#f0f0f0; }
-  #autoDetectStatus { font-size:.72em; color:#555; min-width:5em; text-align:center; }
+  .thumb { position:relative; width:140px; background:#fafafa; padding:8px 8px 34px; box-sizing:border-box; border:2px solid transparent; border-radius:8px; user-select:none; cursor:pointer; }
+  .thumb:hover { border-color:#1976d2; }
+  .thumb img { width:100%; height:auto; display:block; border:1px solid #ddd; border-radius:6px; background:#fff; object-fit:contain; }
+  .order-label { position:absolute; top:8px; left:8px; background:#1976d2; color:#fff; font-size:12px; padding:4px 7px; border-radius:6px; font-weight:bold; opacity:.95; }
+  .remove-btn { position:absolute; top:8px; right:8px; background:rgba(255,0,0,.9); color:#fff; border:none; border-radius:6px; font-size:12px; padding:4px 7px; cursor:pointer; }
+  .move-bar { position:absolute; bottom:8px; left:8px; right:8px; display:flex; justify-content:center; gap:8px; }
+  .move-btn { background:#fff; border:1px solid #ccc; font-size:13px; padding:6px 8px; border-radius:6px; cursor:pointer; }
+  .move-btn:hover { background:#f6f6f6; }
 
-  /* Yellow A4 Guide line (drawn on canvas, not DOM) */
+  #cropperModal { position:fixed; inset:0; background:rgba(0,0,0,0.72); display:none; align-items:center; justify-content:center; z-index:9999; }
+  #cropperModal .modal-content { background:#fff; width:95vw; max-width:1100px; border-radius:12px; max-height:86vh; overflow:auto; padding:14px; box-sizing:border-box; display:flex; flex-direction:column; align-items:center; }
+  #cropperTip { font-size:.9em; color:#333; margin-bottom:8px; text-align:center; }
+  .canvas-wrapper { position:relative; display:inline-block; background:#fafafa; border-radius:8px; }
+  canvas#cropperCanvas { display:block; border-radius:6px; background:#fff; touch-action:none; -webkit-user-select:none; user-select:none; }
 
-  /* Mobile adjustments */
-  @media (max-width:600px){
-    h2 { font-size:1.18em; }
-    .actions button { font-size:.85em; padding:.55em .7em; }
-    .thumb { width:44vw; max-width:170px; }
-    .thumb img { height:90px; }
-    .handle { width:34px; height:34px; margin:-17px 0 0 -17px; }
+  .handle, .edge-handle {
+    position:absolute; width:28px; height:28px; margin-left:-14px; margin-top:-14px;
+    background:#1976d2; border-radius:50%; border:3px solid #fff;
+    box-shadow:0 2px 6px rgba(0,0,0,0.35); z-index:60; touch-action:none; cursor:grab;
   }
+  .handle:active, .edge-handle:active { cursor:grabbing; }
 
-  /* LINE bar */
+  .controls { margin-top:10px; display:flex; gap:.6em; align-items:center; flex-wrap:wrap; }
+  select { padding:.35em .6em; border-radius:6px; border:1px solid #ccc; background:#fff; }
+  .guide { font-size:.82em; color:#666; margin-top:6px; text-align:center; }
+  #autoDetectStatus { font-size:.75em; color:#555; }
+  #cropperBtns { margin-top:12px; display:flex; gap:.6em; flex-wrap:wrap; }
+  #cropperBtns button { padding:.5em .8em; border-radius:8px; border:none; background:#f5f5f5; cursor:pointer; }
+  #cropperBtns button:hover { background:#eaeaea; }
+
+  /* LINE 瀏覽器提醒條 */
   #lineWarningBar {
     display:none;
-    background:#fff8c8;
-    border:1px solid #f2de7b;
-    padding:.55em .8em;
-    border-radius:6px;
-    font-size:.75em;
-    margin-bottom:.6em;
-    color:#523;
+    position:fixed;
+    top:0; left:0; right:0;
+    background:#fffbcc;
+    color:#444;
+    font-size:.85em;
+    padding:.55em .9em .6em;
+    border-bottom:1px solid #e2d885;
+    z-index:10000;
+    line-height:1.3;
   }
   #lineWarningBar button {
-    font-size:.65em; margin-left:.6em; padding:.3em .5em;
-    background:#fff1a0; border:1px solid #d4c060; border-radius:4px; cursor:pointer;
+    margin-left:.8em;
+    background:#fff3a0;
+    border:1px solid #d4c360;
+    padding:.25em .6em;
+    font-size:.75em;
+    border-radius:4px;
+    cursor:pointer;
+  }
+  #lineWarningBar button:hover { background:#ffe970; }
+
+  body.has-line-warning { padding-top:54px; }
+
+  @media (max-width:560px){
+    .thumb { width:30vw; max-width:150px; padding-bottom:34px; }
+    .handle, .edge-handle { width:34px; height:34px; margin-left:-17px; margin-top:-17px; }
+    #cropperModal .modal-content { padding:10px; }
+    #lineWarningBar { font-size:.78em; }
   }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 </head>
 <body>
 <div id="lineWarningBar">
-  偵測到您使用 LINE 內建瀏覽器，可能影響拍照與下載穩定。建議改用系統瀏覽器。
-  <button onclick="this.parentNode.remove()">關閉</button>
+  偵測到您正透過 LINE 內建瀏覽器使用，此環境可能導致拍照/檔案處理或儲存不穩定。
+  建議：使用右上角「在外部瀏覽器開啟」(Android) 或右上角分享 -> 在 Safari 開啟 (iOS)。
+  <button onclick="document.getElementById('lineWarningBar').style.display='none'; document.body.classList.remove('has-line-warning');">關閉</button>
 </div>
 
-<h2>📄 文件拍照轉 PDF</h2>
+<h2>📄 文件拍照轉 PDF（自動偵測 + 邊中拖曳 + 正確方向 + 可再次裁切）</h2>
+
 <div class="actions">
-  <input id="cameraInput" type="file" accept="image/*" capture="environment">
-  <input id="fileInput" type="file" accept="image/*" multiple>
+  <input type="file" accept="image/*" capture="environment" id="cameraInput">
+  <input type="file" accept="image/*" multiple id="fileInput">
   <button onclick="triggerCamera()">📷 拍照</button>
   <button onclick="triggerFile()">🖼️ 選照片</button>
   <button onclick="generatePDF()">🧾 產生 PDF</button>
-  <button class="danger" onclick="clearAllImages()">🗑 清除全部</button>
+  <button class="danger" onclick="clearAllImages()">🗑️ 清除全部</button>
   <span id="loading">處理中...</span>
 </div>
+
 <div id="storageInfo">目前圖片數量：0</div>
 <div id="preview"></div>
 
-<!-- Cropper Modal -->
-<div id="cropperModal">
-  <div id="cropHeader">
-    <strong>裁切調整</strong>：拖曳藍點，雙指縮放/移動。雙擊空白重設。
-    <span id="autoDetectStatus"></span>
-  </div>
-  <div id="cropMain">
-    <div id="canvasStageWrapper">
-      <canvas id="cropCanvas" width="800" height="600"></canvas>
-      <!-- handles 會動態插入 -->
+<div id="cropperModal" role="dialog" aria-modal="true">
+  <div class="modal-content">
+    <div id="cropperTip">
+      拖曳四角/邊中藍點調整；雙擊畫面重設角點。自動偵測不準可重跑或手動微調。若方向不正確請用旋轉按鈕。 (可重複編輯：裁切後點縮圖再進來)
     </div>
-  </div>
-  <div id="cropFooter">
-    <div id="cropControls">
-      <label>效果
+
+    <div id="canvasContainer" class="canvas-wrapper" style="touch-action:none;">
+      <canvas id="cropperCanvas" width="800" height="600"></canvas>
+    </div>
+
+    <div class="controls">
+      <label>效果：
         <select id="effectSelect">
           <option value="original">原色</option>
-          <option value="color_scan">彩色掃描感</option>
+          <option value="color_scan">彩色(模擬掃描)</option>
           <option value="gray">灰階</option>
-          <option value="bw">黑白二值</option>
+          <option value="bw">黑白（高對比）</option>
         </select>
       </label>
-      <button id="autoDetectBtn">🔍 自動四角</button>
-      <button id="rotateBtn">↺ 旋轉90°</button>
-      <button id="resetViewBtn">🧭 重設視圖</button>
+      <button id="autoDetectBtn" title="重新自動找四角">🔍 重跑偵測</button>
+      <button id="rotateLeftBtn" title="逆時針 90°">↺ 90°</button>
+      <button id="rotateRightBtn" title="順時針 90°">↻ 90°</button>
+      <span id="autoDetectStatus"></span>
     </div>
-    <div id="cropButtons">
-      <button id="cropCancelBtn">取消</button>
+
+    <div class="guide">若偵測不準：改善光線與背景對比 / 使用旋轉 / 手動拖曳調整。完成後「確定裁切」。</div>
+
+    <div id="cropperBtns">
       <button id="cropResetBtn">重設四角</button>
       <button id="cropConfirmBtn">確定裁切</button>
+      <button id="cropCancelBtn">取消</button>
     </div>
   </div>
 </div>
 
 <script>
-/* ----------------------------------
-   小工具 / EXIF 方向
----------------------------------- */
+/* 基本設定 */
 const CONFIG = { FULL_MAX_DIM: 2000, PREVIEW_MAX_WIDTH: 420, IMAGE_QUALITY: 0.9 };
-const { jsPDF } = window.jspdf || {};
 let images = [];
+const { jsPDF } = window.jspdf || {};
 
+/* ========== LINE 內建瀏覽器偵測 / 提醒 ========== */
 function detectLineInApp(){
   const ua = navigator.userAgent || '';
-  // 嚴格：需真的含 Line/數字，且非典型桌面 Chrome
-  const isLine = /\bLine\/\d/i.test(ua) && /(Android|iPhone|iPad|iOS)/i.test(ua);
-  if (isLine){
-    document.getElementById('lineWarningBar').style.display='block';
+  // 常見 UA 片段： Line/ 或 LINE/
+  if (/ Line\/|; Line\//i.test(ua) || /\bLine\b/i.test(ua)){
+    const bar = document.getElementById('lineWarningBar');
+    if (bar){
+      bar.style.display='block';
+      document.body.classList.add('has-line-warning');
+    }
   }
 }
-detectLineInApp();
 
+/* ========== ORIENT: 讀取與修正方向 ========== */
 async function loadImageNormalized(file){
-  const buffer = await file.arrayBuffer();
+  const arrayBuffer = await file.arrayBuffer();
+  let blob = file;
   if (self.createImageBitmap){
     try {
-      const bmp = await createImageBitmap(new Blob([buffer]), { imageOrientation:'from-image' });
+      const imgBitmap = await createImageBitmap(new Blob([arrayBuffer]), { imageOrientation: 'from-image' });
       const c = document.createElement('canvas');
-      c.width=bmp.width; c.height=bmp.height;
-      c.getContext('2d').drawImage(bmp,0,0);
+      c.width = imgBitmap.width;
+      c.height = imgBitmap.height;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(imgBitmap,0,0);
       return c.toDataURL('image/jpeg', CONFIG.IMAGE_QUALITY);
     } catch(e){}
   }
-  const ori = getExifOrientation(buffer);
-  const dataUrl = await blobToDataURL(new Blob([buffer],{type:file.type||'image/jpeg'}));
-  if (ori===1) return dataUrl;
-  return await fixOrientation(dataUrl, ori);
+  const orientation = getExifOrientation(arrayBuffer);
+  const dataUrl = await blobToDataURL(new Blob([arrayBuffer], { type: file.type || 'image/jpeg'}));
+  if (orientation === 1) return dataUrl;
+  return await fixImageOrientationByOrientation(dataUrl, orientation);
 }
-function blobToDataURL(blob){ return new Promise((res,rej)=>{ const fr=new FileReader(); fr.onload=e=>res(e.target.result); fr.onerror=rej; fr.readAsDataURL(blob); }); }
-function getExifOrientation(buf){
+function blobToDataURL(blob){
+  return new Promise((resolve,reject)=>{
+    const fr = new FileReader();
+    fr.onload = e => resolve(e.target.result);
+    fr.onerror = reject;
+    fr.readAsDataURL(blob);
+  });
+}
+function getExifOrientation(arrayBuffer){
   try {
-    const dv = new DataView(buf);
-    if (dv.getUint16(0,false)!==0xFFD8) return 1;
-    let off=2;
-    while (off < dv.byteLength){
-      const marker = dv.getUint16(off,false); off+=2;
-      if (marker===0xFFE1){
-        if (dv.getUint32(off+2,false)!==0x45786966) return 1;
-        const tiff = off+8;
-        const little = dv.getUint16(tiff,false)===0x4949;
-        let ifd = dv.getUint32(tiff+4,little)+tiff;
-        const entries = dv.getUint16(ifd,little);
+    const view = new DataView(arrayBuffer);
+    if (view.getUint16(0,false)!==0xFFD8) return 1;
+    let offset=2;
+    while (offset < view.byteLength){
+      const marker=view.getUint16(offset,false); offset+=2;
+      if (marker === 0xFFE1){
+        const size=view.getUint16(offset,false);
+        const exifHeader=offset+2;
+        if (view.getUint32(exifHeader,false)!==0x45786966) return 1;
+        const tiff=exifHeader+6;
+        const endian=view.getUint16(tiff,false);
+        const little=endian===0x4949;
+        if (view.getUint16(tiff+2,little)!==0x002A) return 1;
+        let ifdOffset=view.getUint32(tiff+4,little)+tiff;
+        const entries=view.getUint16(ifdOffset,little);
         for (let i=0;i<entries;i++){
-          const eOff = ifd+2+i*12;
-          if (dv.getUint16(eOff,little)===0x0112){
-            return dv.getUint16(eOff+8,little)||1;
-          }
+          const entry=ifdOffset+2+i*12;
+            if (view.getUint16(entry,little)===0x0112){
+              return view.getUint16(entry+8,little) || 1;
+            }
         }
         return 1;
-      } else if (marker===0xFFDA) break;
-      else off += dv.getUint16(off,false);
+      } else if (marker === 0xFFDA){
+        break;
+      } else {
+        const size=view.getUint16(offset,false);
+        offset+=size;
+      }
     }
   } catch(_){}
   return 1;
 }
-function fixOrientation(dataUrl, ori){
-  return new Promise(r=>{
+function fixImageOrientationByOrientation(dataUrl, orientation){
+  return new Promise(resolve=>{
+    if (orientation===1) return resolve(dataUrl);
     const img=new Image();
     img.onload=()=>{
       const w=img.naturalWidth, h=img.naturalHeight;
-      const c=document.createElement('canvas'), ctx=c.getContext('2d');
-      if ([5,6,7,8].includes(ori)){ c.width=h; c.height=w; } else { c.width=w; c.height=h; }
-      switch(ori){
-        case 2: ctx.transform(-1,0,0,1,w,0); break;
-        case 3: ctx.transform(-1,0,0,-1,w,h); break;
-        case 4: ctx.transform(1,0,0,-1,0,h); break;
-        case 5: ctx.transform(0,1,1,0,0,0); break;
-        case 6: ctx.transform(0,1,-1,0,h,0); break;
-        case 7: ctx.transform(0,-1,-1,0,h,w); break;
-        case 8: ctx.transform(0,-1,1,0,0,w); break;
+      const c=document.createElement('canvas');
+      const ctx=c.getContext('2d');
+      switch(orientation){
+        case 2: c.width=w; c.height=h; ctx.translate(w,0); ctx.scale(-1,1); break;
+        case 3: c.width=w; c.height=h; ctx.translate(w,h); ctx.rotate(Math.PI); break;
+        case 4: c.width=w; c.height=h; ctx.translate(0,h); ctx.scale(1,-1); break;
+        case 5: c.width=h; c.height=w; ctx.rotate(0.5*Math.PI); ctx.scale(1,-1); break;
+        case 6: c.width=h; c.height=w; ctx.rotate(0.5*Math.PI); ctx.translate(0,-h); break;
+        case 7: c.width=h; c.height=w; ctx.rotate(0.5*Math.PI); ctx.translate(w,-h); ctx.scale(-1,1); break;
+        case 8: c.width=h; c.height=w; ctx.rotate(-0.5*Math.PI); ctx.translate(-h,0); break;
+        default: c.width=w; c.height=h;
       }
       ctx.drawImage(img,0,0);
-      r(c.toDataURL('image/jpeg', CONFIG.IMAGE_QUALITY));
+      resolve(c.toDataURL('image/jpeg', CONFIG.IMAGE_QUALITY));
     };
-    img.onerror=()=>r(dataUrl);
+    img.onerror=()=>resolve(dataUrl);
     img.src=dataUrl;
   });
 }
 
-/* ----------------------------------
-   自動四角偵測 (和之前邏輯類似，保留)
----------------------------------- */
+/* ========== 自動偵測四角（同原邏輯） ========== */
 function autoDetectDocumentCorners(img){
-  const MAX=800;
-  const scale=Math.min(1, MAX/Math.max(img.width,img.height));
-  const sw=img.width*scale|0, sh=img.height*scale|0;
+  const MAX_SIDE=800;
+  const scale=Math.min(1, MAX_SIDE/Math.max(img.width,img.height));
+  const sw=Math.round(img.width*scale), sh=Math.round(img.height*scale);
   const c=document.createElement('canvas'); c.width=sw; c.height=sh;
   const ctx=c.getContext('2d'); ctx.drawImage(img,0,0,sw,sh);
-  const { data }=ctx.getImageData(0,0,sw,sh);
+  const data=ctx.getImageData(0,0,sw,sh).data;
   const gray=new Uint8ClampedArray(sw*sh);
   for (let i=0,j=0;i<data.length;i+=4,j++) gray[j]=(0.299*data[i]+0.587*data[i+1]+0.114*data[i+2])|0;
-  // 簡化：邊緣 + hull
-  const edge=new Uint8Array(sw*sh);
+
+  const blur=new Uint8ClampedArray(sw*sh);
+  for (let y=0;y<sh;y++){
+    for (let x=0;x<sw;x++){
+      let sum=0,cnt=0;
+      for (let ky=-1;ky<=1;ky++){
+        const yy=y+ky; if (yy<0||yy>=sh) continue;
+        for (let kx=-1;kx<=1;kx++){
+          const xx=x+kx; if (xx<0||xx>=sw) continue;
+          sum+=gray[yy*sw+xx]; cnt++;
+        }
+      }
+      blur[y*sw+x]=(sum/cnt)|0;
+    }
+  }
+  const gxK=[-1,0,1,-2,0,2,-1,0,1], gyK=[-1,-2,-1,0,0,0,1,2,1];
+  const mag=new Float32Array(sw*sh);
   for (let y=1;y<sh-1;y++){
     for (let x=1;x<sw-1;x++){
-      const i=y*sw+x;
-      const gx= gray[i+1]-gray[i-1];
-      const gy= gray[i+sw]-gray[i-sw];
-      if (Math.hypot(gx,gy)>28) edge[i]=1;
+      let gx=0,gy=0,idx=0;
+      for (let ky=-1;ky<=1;ky++){
+        for (let kx=-1;kx<=1;kx++){
+          const v=blur[(y+ky)*sw+(x+kx)];
+          gx+=v*gxK[idx]; gy+=v*gyK[idx]; idx++;
+        }
+      }
+      mag[y*sw+x]=Math.hypot(gx,gy);
+    }
+  }
+  let sum=0,count=0;
+  for (let i=0;i<mag.length;i++){ if(mag[i]>0){ sum+=mag[i]; count++; } }
+  const mean=sum/(count||1), thresh=mean*1.3;
+  const edge=new Uint8Array(sw*sh);
+  for (let i=0;i<mag.length;i++) edge[i]=mag[i]>thresh?1:0;
+  const edge2=new Uint8Array(edge);
+  for (let y=1;y<sh-1;y++){
+    for (let x=1;x<sw-1;x++){
+      if (edge[y*sw+x]) continue;
+      outer: for (let ky=-1;ky<=1;ky++){
+        for (let kx=-1;kx<=1;kx++){
+          if (edge[(y+ky)*sw+(x+kx)]){ edge2[y*sw+x]=1; break outer; }
+        }
+      }
     }
   }
   const pts=[];
-  for (let y=0;y<sh;y++) for (let x=0;x<sw;x++) if (edge[y*sw+x]) pts.push({x,y});
+  for (let y=0;y<sh;y++)
+    for (let x=0;x<sw;x++)
+      if (edge2[y*sw+x]) pts.push({x,y});
   if (pts.length<50) return null;
-  // convex hull (monotonic)
-  pts.sort((a,b)=>a.x===b.x?a.y-b.y:a.x-b.x);
+  pts.sort((a,b)=>a.x===b.x? a.y-b.y : a.x-b.x);
   function cross(o,a,b){ return (a.x-o.x)*(b.y-o.y)-(a.y-o.y)*(b.x-o.x); }
   const lower=[], upper=[];
-  for (const p of pts){ while(lower.length>=2 && cross(lower[lower.length-2], lower[lower.length-1], p)<=0) lower.pop(); lower.push(p); }
-  for (let i=pts.length-1;i>=0;i--){ const p=pts[i]; while(upper.length>=2 && cross(upper[upper.length-2], upper[upper.length-1], p)<=0) upper.pop(); upper.push(p); }
+  for (const p of pts){
+    while (lower.length>=2 && cross(lower[lower.length-2], lower[lower.length-1], p)<=0) lower.pop();
+    lower.push(p);
+  }
+  for (let i=pts.length-1;i>=0;i--){
+    const p=pts[i];
+    while (upper.length>=2 && cross(upper[upper.length-2], upper[upper.length-1], p)<=0) upper.pop();
+    upper.push(p);
+  }
   upper.pop(); lower.pop();
   const hull=lower.concat(upper);
   if (hull.length<4) return null;
-  // 選四個角
   let tl,tr,br,bl;
   let minSum=Infinity,maxSum=-Infinity,minDiff=Infinity,maxDiff=-Infinity;
   for (const p of hull){
@@ -318,640 +329,687 @@ function autoDetectDocumentCorners(img){
     if (d>maxDiff){ maxDiff=d; tr=p; }
     if (d<minDiff){ minDiff=d; bl=p; }
   }
-  const inv=1/scale;
-  return [tl,tr,br,bl].map(p=>({ x:p.x*inv, y:p.y*inv }));
+  if(!tl||!tr||!br||!bl) return null;
+  const invScale=1/scale;
+  const quad=[tl,tr,br,bl].map(p=>({x:p.x*invScale,y:p.y*invScale}));
+  function polyArea(q){
+    let a=0;
+    for (let i=0;i<q.length;i++){
+      const p1=q[i], p2=q[(i+1)%q.length];
+      a+=p1.x*p2.y - p2.x*p1.y;
+    }
+    return Math.abs(a)/2;
+  }
+  if (polyArea(quad) < img.width*img.height*0.1) return null;
+  return quad;
 }
 
-/* ----------------------------------
-   透視 / 同前版本
----------------------------------- */
+/* 線性代數 / 影像變形 */
 function solveLinearSystem(A,b){
-  // 簡單 Gaussian
   const n=A.length; const M=A.map((r,i)=>r.slice().concat(b[i]));
-  for(let i=0;i<n;i++){
-    // pivot
-    let max=i;
-    for(let r=i+1;r<n;r++) if (Math.abs(M[r][i])>Math.abs(M[max][i])) max=r;
-    if (Math.abs(M[max][i])<1e-12) return null;
-    [M[i],M[max]]=[M[max],M[i]];
-    const div=M[i][i];
-    for(let c=i;c<=n;c++) M[i][c]/=div;
-    for(let r=0;r<n;r++) if (r!==i){
-      const f=M[r][i];
-      for(let c=i;c<=n;c++) M[r][c]-=f*M[i][c];
+  for (let k=0;k<n;k++){
+    let im=k;
+    for (let i=k+1;i<n;i++) if (Math.abs(M[i][k])>Math.abs(M[im][k])) im=i;
+    if (Math.abs(M[im][k])<1e-12) return null;
+    [M[k],M[im]]=[M[im],M[k]];
+    const piv=M[k][k];
+    for (let j=k;j<=n;j++) M[k][j]/=piv;
+    for (let i=0;i<n;i++) if (i!==k){
+      const f=M[i][k];
+      for (let j=k;j<=n;j++) M[i][j]-=f*M[k][j];
     }
   }
   return M.map(r=>r[n]);
 }
-function computeHomography(src,dst){
-  const A=[], B=[];
+function computeHomography(srcPts,dstPts){
+  const A=[], b=[];
   for (let i=0;i<4;i++){
-    const {x,y}=src[i], {x:U,y:V}=dst[i];
-    A.push([x,y,1,0,0,0,-U*x,-U*y]); B.push(U);
-    A.push([0,0,0,x,y,1,-V*x,-V*y]); B.push(V);
+    const {x,y}=srcPts[i], {x:u,y:v}=dstPts[i];
+    A.push([x,y,1,0,0,0,-u*x,-u*y]); b.push(u);
+    A.push([0,0,0,x,y,1,-v*x,-v*y]); b.push(v);
   }
-  const h=solveLinearSystem(A,B);
-  if(!h) return null;
+  const h=solveLinearSystem(A,b); if(!h) return null;
   return [[h[0],h[1],h[2]],[h[3],h[4],h[5]],[h[6],h[7],1]];
 }
 function invert3x3(m){
   const a=m[0][0],b=m[0][1],c=m[0][2], d=m[1][0],e=m[1][1],f=m[1][2], g=m[2][0],h=m[2][1],i=m[2][2];
-  const A=e*i-f*h,B=c*h-b*i,C=b*f-c*e,D=f*g-d*i,E=a*i-c*g,F=c*d-a*f,G=d*h-e*g,H=b*g-a*h,I=a*e-b*d;
+  const A=e*i-f*h,B=c*h-b*i,C=b*f-c*e, D=f*g-d*i,E=a*i-c*g,F=c*d-a*f, G=d*h-e*g,H=b*g-a*h,I=a*e-b*d;
   const det=a*A+b*D+c*G; if (Math.abs(det)<1e-12) return null;
   const inv=1/det;
   return [[A*inv,B*inv,C*inv],[D*inv,E*inv,F*inv],[G*inv,H*inv,I*inv]];
 }
-function warpImage(srcImg,H,dstW,dstH){
-  const can=document.createElement('canvas'); can.width=dstW; can.height=dstH;
-  const sC=document.createElement('canvas'); sC.width=srcImg.width; sC.height=srcImg.height;
-  sC.getContext('2d').drawImage(srcImg,0,0);
-  const sdat=sC.getContext('2d').getImageData(0,0,sC.width,sC.height);
-  const dctx=can.getContext('2d');
-  const out=dctx.createImageData(dstW,dstH);
-  const inv=invert3x3(H); if(!inv){ dctx.drawImage(srcImg,0,0,dstW,dstH); return can; }
-  const [a,b,c,d,e,f,g,h,i]=[inv[0][0],inv[0][1],inv[0][2],inv[1][0],inv[1][1],inv[1][2],inv[2][0],inv[2][1],inv[2][2]];
-  const sw=sC.width, sh=sC.height, sdata=sdat.data, ddata=out.data;
+function warpImageWithHomography(srcCanvas,H,dstW,dstH){
+  const dst=document.createElement('canvas'); dst.width=dstW; dst.height=dstH;
+  const dstCtx=dst.getContext('2d'), srcCtx=srcCanvas.getContext('2d');
+  const srcW=srcCanvas.width, srcH=srcCanvas.height;
+  const srcData=srcCtx.getImageData(0,0,srcW,srcH).data;
+  const dstImg=dstCtx.createImageData(dstW,dstH); const dstData=dstImg.data;
+  const Hinv=invert3x3(H); if(!Hinv){ dstCtx.drawImage(srcCanvas,0,0,dstW,dstH); return dst; }
   for (let y=0;y<dstH;y++){
     for (let x=0;x<dstW;x++){
-      const denom = g*x + h*y + i;
-      const sx=(a*x + b*y + c)/denom;
-      const sy=(d*x + e*y + f)/denom;
+      const denom=Hinv[2][0]*x + Hinv[2][1]*y + Hinv[2][2];
+      if (!denom) continue;
+      const sx=(Hinv[0][0]*x + Hinv[0][1]*y + Hinv[0][2])/denom;
+      const sy=(Hinv[1][0]*x + Hinv[1][1]*y + Hinv[1][2])/denom;
+      let r=255,g=255,b=255,a=255;
+      if (sx>=0&&sy>=0&&sx<srcW&&sy<srcH){
+        const x0=Math.floor(sx), y0=Math.floor(sy);
+        const x1=Math.min(x0+1, srcW-1), y1=Math.min(y0+1, srcH-1);
+        const dx=sx-x0, dy=sy-y0;
+        const idx00=(y0*srcW+x0)*4, idx10=(y0*srcW+x1)*4;
+        const idx01=(y1*srcW+x0)*4, idx11=(y1*srcW+x1)*4;
+        function lerp(a,b,t){ return a+(b-a)*t; }
+        function pick(idx){ return [srcData[idx],srcData[idx+1],srcData[idx+2],srcData[idx+3]]; }
+        const p00=pick(idx00), p10=pick(idx10), p01=pick(idx01), p11=pick(idx11);
+        const p0=p00.map((v,i)=>lerp(v,p10[i],dx));
+        const p1=p01.map((v,i)=>lerp(v,p11[i],dx));
+        const p=p0.map((v,i)=>lerp(v,p1[i],dy));
+        [r,g,b,a]=p;
+      }
       const di=(y*dstW+x)*4;
-      if (sx>=0 && sy>=0 && sx<sw-1 && sy<sh-1){
-        const x0=sx|0, y0=sy|0;
-        const dx=sx-x0, dy=sy-y0, dx1=1-dx, dy1=1-dy;
-        const i00=(y0*sw+x0)*4;
-        const i10=i00+4;
-        const i01=i00+sw*4;
-        const i11=i01+4;
-        for (let k=0;k<4;k++){
-          ddata[di+k] = sdata[i00+k]*dx1*dy1 + sdata[i10+k]*dx*dy1 + sdata[i01+k]*dx1*dy + sdata[i11+k]*dx*dy;
-        }
-      } else {
-        ddata[di]=ddata[di+1]=ddata[di+2]=255; ddata[di+3]=255;
+      dstData[di]=r; dstData[di+1]=g; dstData[di+2]=b; dstData[di+3]=a;
+    }
+  }
+  dstCtx.putImageData(dstImg,0,0);
+  return dst;
+}
+
+// *** MODIFIED FUNCTION ***
+function applyEffect(canvas, effect) {
+  if (!canvas || effect === 'original') return;
+  const ctx = canvas.getContext('2d');
+  const imgd = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const d = imgd.data;
+
+  if (effect === 'color_scan') {
+    // 降低對比度並微調亮度，讓效果更柔和，以保留更多顏色細節
+    const brightness = 0.08; // 提高 8% 亮度
+    const contrast = 1.25;   // 將對比度從 1.4 降低至 1.25 (提高 25%)
+    const brightnessVal = 255 * brightness;
+
+    for (let i = 0; i < d.length; i += 4) {
+      // 套用亮度和對比度公式
+      let r = contrast * (d[i] - 128) + 128 + brightnessVal;
+      let g = contrast * (d[i + 1] - 128) + 128 + brightnessVal;
+      let b = contrast * (d[i + 2] - 128) + 128 + brightnessVal;
+
+      // 將像素值限制在 0-255 範圍內
+      d[i] = Math.max(0, Math.min(255, r));
+      d[i + 1] = Math.max(0, Math.min(255, g));
+      d[i + 2] = Math.max(0, Math.min(255, b));
+    }
+  } else if (effect === 'gray' || effect === 'bw') {
+    // 對 'gray' 和 'bw' 效果先進行灰階處理
+    for (let i = 0; i < d.length; i += 4) {
+      const r = d[i], g = d[i + 1], b = d[i + 2];
+      const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+      d[i] = d[i + 1] = d[i + 2] = lum;
+    }
+
+    if (effect === 'bw') {
+      // 對 'bw' 效果在灰階後再進行黑白二值化 (Otsu's method)
+      const hist = new Array(256).fill(0);
+      for (let i = 0; i < d.length; i += 4) hist[d[i]]++;
+      const total = canvas.width * canvas.height;
+      let sum = 0; for (let t = 0; t < 256; t++) sum += t * hist[t];
+      let wB = 0, sumB = 0, varMax = 0, th = 0;
+      for (let t = 0; t < 256; t++) {
+        wB += hist[t]; if (!wB) continue;
+        const wF = total - wB; if (!wF) break;
+        sumB += t * hist[t];
+        const mB = sumB / wB, mF = (sum - sumB) / wF;
+        const v = wB * wF * (mB - mF) * (mB - mF);
+        if (v > varMax) { varMax = v; th = t; }
+      }
+      for (let i = 0; i < d.length; i += 4) {
+        const v = d[i] > th ? 255 : 0;
+        d[i] = d[i + 1] = d[i + 2] = v;
       }
     }
   }
-  dctx.putImageData(out,0,0);
-  return can;
+  ctx.putImageData(imgd, 0, 0);
 }
 
-/* ----------------------------------
-   效果
----------------------------------- */
-function applyEffect(canvas, effect){
-  if (!effect || effect==='original') return;
-  const ctx=canvas.getContext('2d');
-  const imgd=ctx.getImageData(0,0,canvas.width,canvas.height);
-  const d=imgd.data;
-  if (effect==='color_scan'){
-    const contrast=1.25, bright=0.08*255;
-    for (let i=0;i<d.length;i+=4){
-      d[i]   = Math.max(0,Math.min(255, contrast*(d[i]-128)+128+bright));
-      d[i+1] = Math.max(0,Math.min(255, contrast*(d[i+1]-128)+128+bright));
-      d[i+2] = Math.max(0,Math.min(255, contrast*(d[i+2]-128)+128+bright));
-    }
-  } else if (effect==='gray' || effect==='bw'){
-    for (let i=0;i<d.length;i+=4){
-      const v=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2];
-      d[i]=d[i+1]=d[i+2]=v;
-    }
-    if (effect==='bw'){
-      const hist=new Array(256).fill(0);
-      for (let i=0;i<d.length;i+=4) hist[d[i]]++;
-      const total=canvas.width*canvas.height;
-      let sum=0; for(let t=0;t<256;t++) sum+=t*hist[t];
-      let wB=0, sumB=0, varMax=0, threshold=128;
-      for (let t=0;t<256;t++){
-        wB+=hist[t]; if(!wB) continue;
-        const wF=total-wB; if(!wF) break;
-        sumB+=t*hist[t];
-        const mB=sumB/wB, mF=(sum-sumB)/wF;
-        const between=wB*wF*(mB-mF)*(mB-mF);
-        if (between>varMax){ varMax=between; threshold=t; }
-      }
-      for (let i=0;i<d.length;i+=4){
-        const val= d[i] > threshold ? 255 : 0;
-        d[i]=d[i+1]=d[i+2]=val;
-      }
-    }
-  }
-  ctx.putImageData(imgd,0,0);
-}
-
-/* ----------------------------------
-   裁切 UI：穩定 + 雙指縮放
----------------------------------- */
-async function openCropper(dataUrl, opts={}){
+/* ========= 裁切 UI（新增：初始值、再次裁切、保留 rotation/quad） ========= */
+function openCropper(dataUrl, options={}){
+  const { initialEffect, initialQuad, initialRotation } = options;
   return new Promise((resolve,reject)=>{
-    const modal = document.getElementById('cropperModal');
-    const canvas = document.getElementById('cropCanvas');
-    const effectSelect = document.getElementById('effectSelect');
-    const statusEl = document.getElementById('autoDetectStatus');
-    const autoBtn = document.getElementById('autoDetectBtn');
-    const rotateBtn = document.getElementById('rotateBtn');
-    const resetViewBtn = document.getElementById('resetViewBtn');
-    const cancelBtn = document.getElementById('cropCancelBtn');
-    const confirmBtn = document.getElementById('cropConfirmBtn');
-    const resetQuadBtn = document.getElementById('cropResetBtn');
-    const stageWrapper = document.getElementById('canvasStageWrapper');
-    const ctx = canvas.getContext('2d');
+    const modal=document.getElementById('cropperModal');
+    const canvas=document.getElementById('cropperCanvas');
+    const wrapper=document.getElementById('canvasContainer');
+    const statusEl=document.getElementById('autoDetectStatus');
+    const rotateLeftBtn=document.getElementById('rotateLeftBtn');
+    const rotateRightBtn=document.getElementById('rotateRightBtn');
+    const effectSelect=document.getElementById('effectSelect');
+    if (initialEffect){
+      effectSelect.value = initialEffect;
+    } else {
+      effectSelect.value = 'original';
+    }
 
-    // State
-    let img = new Image();
-    let rotation = opts.initialRotation||0;
-    let baseScale = 1; // 圖片適配畫布的基礎倍數
-    let zoom = 1;
-    let panX = 0; // 在 canvas 座標系 (左上為 0,0) 下的偏移
-    let panY = 0;
+    let ctx=canvas.getContext('2d');
+    modal.style.display='flex';
 
-    // 四角 (image 空間的 0~img.width / 0~img.height)
-    let corners = opts.initialQuad
-      ? opts.initialQuad.map(p=>({ x:p.x, y:p.y }))
-      : null;
+    const baseImg=new Image();
+    let workingCanvas=null;
+    let workingImg=new Image();
+    let rotation=0;
+    let pendingInitialQuad = null;
 
-    // 互動
-    let draggingHandle = -1;
-    let activePointers = new Map();
-    let lastDistance = null;
-    let lastMid = null;
+    let imgDraw={dx:0,dy:0,dw:0,dh:0,scale:1};
+    let handles=[];
+    let cornerEls=[], edgeEls=[];
+    let autoDone=false;
 
-    // 建立 handle DOM
-    const handlesDom = [];
-    function ensureHandles(){
+    const EDGE_MAP=[
+      { a:0,b:1 },
+      { a:1,b:2 },
+      { a:2,b:3 },
+      { a:3,b:0 }
+    ];
+
+    function ensureCornerEls(){
       for (let i=0;i<4;i++){
-        if (!handlesDom[i]){
-          const h=document.createElement('div');
-            h.className='handle';
-            h.dataset.idx=i;
-            stageWrapper.appendChild(h);
-            handlesDom[i]=h;
+        if (!cornerEls[i]){
+          const el=document.createElement('div');
+          el.className='handle'; el.dataset.type='corner'; el.dataset.idx=i;
+            el.addEventListener('pointerdown', ev=>ev.preventDefault());
+          wrapper.appendChild(el);
+          cornerEls[i]=el;
         }
       }
     }
-
-    function setInitialCorners(){
-      const inset = 0.06;
-      corners = [
-        { x: img.width*inset, y: img.height*inset },
-        { x: img.width*(1-inset), y: img.height*inset },
-        { x: img.width*(1-inset), y: img.height*(1-inset) },
-        { x: img.width*inset, y: img.height*(1-inset) }
-      ];
-    }
-
-    function resizeCanvas(){
-      // 讓 canvas 貼滿 wrapper
-      const rect = stageWrapper.getBoundingClientRect();
-      canvas.width = rect.width;
-      canvas.height = rect.height;
-      computeBasePlacement();
-      draw();
-    }
-
-    function computeBasePlacement(){
-      // 圖片在 0 zoom 時的 baseScale 與置中
-      baseScale = Math.min(canvas.width / img.width, canvas.height / img.height);
-      const imgDisplayW = img.width * baseScale;
-      const imgDisplayH = img.height * baseScale;
-      panX = (canvas.width - imgDisplayW)/2;
-      panY = (canvas.height - imgDisplayH)/2;
-      zoom = 1;
-    }
-
-    function imageToScreen(x,y){
-      return {
-        sx: panX + x * baseScale * zoom,
-        sy: panY + y * baseScale * zoom
-      };
-    }
-    function screenToImage(sx,sy){
-      return {
-        x: (sx - panX)/(baseScale*zoom),
-        y: (sy - panY)/(baseScale*zoom)
-      };
-    }
-
-    function positionHandles(){
-      ensureHandles();
-      corners.forEach((c,i)=>{
-        const {sx,sy}=imageToScreen(c.x,c.y);
-        handlesDom[i].style.left = sx+'px';
-        handlesDom[i].style.top  = sy+'px';
-      });
-    }
-
-    function draw(){
-      ctx.clearRect(0,0,canvas.width,canvas.height);
-      // 灰底
-      ctx.fillStyle='#222'; ctx.fillRect(0,0,canvas.width,canvas.height);
-      // 圖片
-      ctx.save();
-      ctx.imageSmoothingEnabled = true;
-      ctx.drawImage(img, panX, panY, img.width*baseScale*zoom, img.height*baseScale*zoom);
-      ctx.restore();
-
-      // A4 guide (依圖片方向來決定直橫)
-      const isPortrait = img.height >= img.width;
-      const a4Ratio = isPortrait ? (1/Math.sqrt(2)) : Math.sqrt(2); // w/h
-      const viewW = img.width*baseScale*zoom;
-      const viewH = img.height*baseScale*zoom;
-      let guideW, guideH;
-      if ( (viewW/viewH) > a4Ratio ){
-        guideH = viewH*0.9;
-        guideW = guideH * a4Ratio;
-      } else {
-        guideW = viewW*0.9;
-        guideH = guideW / a4Ratio;
+    function ensureEdgeEls(){
+      for (let i=0;i<4;i++){
+        if (!edgeEls[i]){
+          const el=document.createElement('div');
+          el.className='edge-handle'; el.dataset.type='edge'; el.dataset.idx=i;
+          el.addEventListener('pointerdown', ev=>ev.preventDefault());
+          wrapper.appendChild(el);
+          edgeEls[i]=el;
+        }
       }
-      const gx = panX + (viewW - guideW)/2;
-      const gy = panY + (viewH - guideH)/2;
-      ctx.save();
-      ctx.setLineDash([8,6]);
-      ctx.strokeStyle='rgba(255,210,0,0.9)';
-      ctx.lineWidth=2;
-      ctx.strokeRect(gx,gy,guideW,guideH);
-      ctx.restore();
-
-      // 裁切多邊形
-      ctx.save();
+    }
+    function positionCornerEls(){
+      for (let i=0;i<4;i++){
+        const el=cornerEls[i];
+        const px=imgDraw.dx + handles[i].u * imgDraw.dw;
+        const py=imgDraw.dy + handles[i].v * imgDraw.dh;
+        el.style.left=px+'px';
+        el.style.top =py+'px';
+      }
+    }
+    function updateEdgeHandlePositions(){
+      for (let i=0;i<4;i++){
+        const {a,b}=EDGE_MAP[i];
+        const ax=imgDraw.dx + handles[a].u*imgDraw.dw;
+        const ay=imgDraw.dy + handles[a].v*imgDraw.dh;
+        const bx=imgDraw.dx + handles[b].u*imgDraw.dw;
+        const by=imgDraw.dy + handles[b].v*imgDraw.dh;
+        edgeEls[i].style.left=((ax+bx)/2)+'px';
+        edgeEls[i].style.top =((ay+by)/2)+'px';
+      }
+    }
+    function redraw(){
+      ctx.save(); ctx.setTransform(1,0,0,1,0,0); ctx.clearRect(0,0,canvas.width,canvas.height); ctx.restore();
+      ctx.drawImage(workingImg,0,0,workingImg.width,workingImg.height, imgDraw.dx,imgDraw.dy,imgDraw.dw,imgDraw.dh);
+      ctx.lineWidth=2; ctx.strokeStyle='rgba(25,118,210,0.95)';
       ctx.beginPath();
-      corners.forEach((c,i)=>{
-        const {sx,sy}=imageToScreen(c.x,c.y);
-        if (i===0) ctx.moveTo(sx,sy); else ctx.lineTo(sx,sy);
-      });
-      ctx.closePath();
-      ctx.lineWidth=2;
-      ctx.strokeStyle='rgba(0,136,255,0.95)';
-      ctx.stroke();
-      ctx.restore();
-
-      positionHandles();
+      for (let i=0;i<4;i++){
+        const x=imgDraw.dx + handles[i].u*imgDraw.dw;
+        const y=imgDraw.dy + handles[i].v*imgDraw.dh;
+        if (i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+      }
+      ctx.closePath(); ctx.stroke();
+    }
+    function setDefaultHandles(){
+      const inset=0.06;
+      handles=[
+        {u:inset, v:inset},
+        {u:1-inset, v:inset},
+        {u:1-inset, v:1-inset},
+        {u:inset, v:1-inset}
+      ];
+      positionCornerEls(); updateEdgeHandlePositions(); redraw();
+    }
+    function setHandlesByQuad(quad){
+      handles = quad.map(p=>({ u: p.x / workingImg.width, v: p.y / workingImg.height }));
+      positionCornerEls(); updateEdgeHandlePositions(); redraw();
     }
 
-    function autoDetect(){
-      statusEl.textContent='(偵測中)';
-      setTimeout(()=>{
-        try {
-          const det = autoDetectDocumentCorners(img);
-          if (det){
-            corners = det;
-            statusEl.textContent='(已偵測)';
+    async function runAutoDetect(){
+      statusEl.textContent='偵測中...';
+      await new Promise(r=>setTimeout(r,16));
+      try {
+        const tempImg = new Image();
+        tempImg.onload=()=>{
+          const quad=autoDetectDocumentCorners(tempImg);
+          if (quad){
+            setHandlesByQuad(quad);
+            statusEl.textContent='已自動偵測 ✔';
+            autoDone=true;
           } else {
-            statusEl.textContent='(失敗)';
-            if (!corners) setInitialCorners();
+            statusEl.textContent='偵測失敗，已預設';
+            if(!autoDone) setDefaultHandles();
           }
-          draw();
-        } catch(e){
-          statusEl.textContent='(錯誤)';
-          if (!corners) setInitialCorners();
-          draw();
+        };
+        tempImg.src = workingImg.src;
+      } catch(e){
+        console.warn(e);
+        statusEl.textContent='偵測錯誤，已預設';
+        if(!autoDone) setDefaultHandles();
+      }
+    }
+
+    function layoutWorkingImage(){
+      const winW=Math.min(window.innerWidth*0.92, 1200);
+      const winH=Math.min(window.innerHeight*0.7, 1100);
+      const fitScale=Math.min(winW/workingImg.width, winH/workingImg.height, 1);
+      const displayW=Math.max(320, Math.round(workingImg.width*fitScale));
+      const displayH=Math.max(240, Math.round(workingImg.height*fitScale));
+      const dpr=window.devicePixelRatio||1;
+      canvas.style.width=displayW+'px';
+      canvas.style.height=displayH+'px';
+      canvas.width=Math.round(displayW*dpr);
+      canvas.height=Math.round(displayH*dpr);
+      ctx=canvas.getContext('2d');
+      ctx.setTransform(dpr,0,0,dpr,0,0);
+      const scale=Math.min(displayW/workingImg.width, displayH/workingImg.height);
+      const dw=Math.round(workingImg.width*scale);
+      const dh=Math.round(workingImg.height*scale);
+      const dx=Math.round((displayW - dw)/2);
+      const dy=Math.round((displayH - dh)/2);
+      imgDraw={dx,dy,dw,dh,scale};
+    }
+
+    function applyRotation(delta, skipAuto=false){
+      rotation = (rotation + delta + 360) % 360;
+      const w = baseImg.naturalWidth;
+      const h = baseImg.naturalHeight;
+      workingCanvas = document.createElement('canvas');
+      const ctx2 = workingCanvas.getContext('2d');
+      if (rotation === 0 || rotation === 180){
+        workingCanvas.width = w;
+        workingCanvas.height = h;
+      } else {
+        workingCanvas.width = h;
+        workingCanvas.height = w;
+      }
+      ctx2.save();
+      switch(rotation){
+        case 0:
+          ctx2.drawImage(baseImg,0,0);
+          break;
+        case 90:
+          ctx2.translate(workingCanvas.width,0);
+          ctx2.rotate(Math.PI/2);
+          ctx2.drawImage(baseImg,0,0);
+          break;
+        case 180:
+          ctx2.translate(workingCanvas.width,workingCanvas.height);
+          ctx2.rotate(Math.PI);
+          ctx2.drawImage(baseImg,0,0);
+          break;
+        case 270:
+          ctx2.translate(0,workingCanvas.height);
+          ctx2.rotate(-Math.PI/2);
+          ctx2.drawImage(baseImg,0,0);
+          break;
+      }
+      ctx2.restore();
+      workingImg.onload = ()=>{
+        layoutWorkingImage();
+        ensureCornerEls(); ensureEdgeEls();
+        if (pendingInitialQuad){
+          setHandlesByQuad(pendingInitialQuad);
+          statusEl.textContent='已載入上次裁切';
+          pendingInitialQuad=null;
+        } else {
+          setDefaultHandles();
+          if (!skipAuto) runAutoDetect(); else statusEl.textContent='';
         }
-      }, 10);
+        wrapper.addEventListener('pointerdown', pointerDown, {passive:false});
+      };
+      workingImg.src = workingCanvas.toDataURL('image/jpeg', 0.92);
     }
 
-    function rotate90(){
-      rotation = (rotation + 90) % 360;
-      // 重新建立轉向圖
-      const c=document.createElement('canvas');
-      const ctx2=c.getContext('2d');
-      if (rotation===90 || rotation===270){
-        c.width=img.height; c.height=img.width;
-      } else {
-        c.width=img.width; c.height=img.height;
-      }
-      ctx2.translate(c.width/2, c.height/2);
-      ctx2.rotate(rotation*Math.PI/180);
-      ctx2.drawImage(originalImage, -originalImage.width/2, -originalImage.height/2);
-      img.src = c.toDataURL('image/jpeg',0.92);
-    }
+    // 拖曳
+    let dragType=null;
+    let dragCornerIdx=-1;
+    let dragEdgeIdx=-1;
+    let lastTap=0;
 
-    function resetView(){
-      computeBasePlacement();
-      draw();
-    }
-
-    // 事件：指標
     function pointerDown(e){
-      canvas.setPointerCapture(e.pointerId);
-      activePointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
-      // 判斷是否點到 handle
-      const rect = canvas.getBoundingClientRect();
-      const mx = e.clientX - rect.left;
-      const my = e.clientY - rect.top;
-      let found=-1, hitDist=999;
-      corners.forEach((c,i)=>{
-        const {sx,sy}=imageToScreen(c.x,c.y);
-        const d=Math.hypot(sx-mx, sy-my);
-        if (d<40 && d<hitDist){ hitDist=d; found=i; }
-      });
-      if (found>=0){
-        draggingHandle=found;
+      const target=e.target;
+      const rect=canvas.getBoundingClientRect();
+      const cx=e.clientX-rect.left, cy=e.clientY-rect.top;
+
+      if (target.dataset && target.dataset.type==='corner'){
+        dragType='corner'; dragCornerIdx=parseInt(target.dataset.idx);
+      } else if (target.dataset && target.dataset.type==='edge'){
+        dragType='edge'; dragEdgeIdx=parseInt(target.dataset.idx);
       } else {
-        draggingHandle=-1;
+        let best=-1, bestD=Infinity;
+        for (let i=0;i<4;i++){
+          const px=imgDraw.dx + handles[i].u*imgDraw.dw;
+          const py=imgDraw.dy + handles[i].v*imgDraw.dh;
+          const d=Math.hypot(px-cx, py-cy);
+          if (d<bestD){ bestD=d; best=i; }
+        }
+        if (bestD <= 36){
+          dragType='corner'; dragCornerIdx=best;
+        } else {
+          const now=Date.now();
+          if (now-lastTap<300){
+            setDefaultHandles();
+            statusEl.textContent='已重設';
+          }
+          lastTap=now;
+          dragType=null;
+        }
       }
-      lastDistance = null;
-      lastMid = null;
+      if (dragType){
+        try { wrapper.setPointerCapture(e.pointerId); } catch(_){}
+        window.addEventListener('pointermove', pointerMove, {passive:false});
+        window.addEventListener('pointerup', pointerUp, {passive:false});
+        e.preventDefault();
+      }
     }
     function pointerMove(e){
-      if (!activePointers.has(e.pointerId)) return;
-      activePointers.set(e.pointerId, {x:e.clientX,y:e.clientY});
-      const rect = canvas.getBoundingClientRect();
-
-      if (activePointers.size===1){
-        const p = activePointers.values().next().value;
-        if (draggingHandle>=0){
-          const sx = p.x - rect.left;
-          const sy = p.y - rect.top;
-            const {x,y}=screenToImage(sx,sy);
-            corners[draggingHandle].x = Math.max(0, Math.min(img.width, x));
-            corners[draggingHandle].y = Math.max(0, Math.min(img.height, y));
-            draw();
-        } else {
-          // 平移 (使用 movement 會被 pointer lock 影響，改自算)
-          if (!e._lastPan){ e._lastPan={x:p.x,y:p.y}; }
-          const dx = p.x - e._lastPan.x;
-          const dy = p.y - e._lastPan.y;
-          panX += dx;
-          panY += dy;
-          e._lastPan.x = p.x;
-          e._lastPan.y = p.y;
-          draw();
+      if (!dragType) return;
+      const rect=canvas.getBoundingClientRect();
+      const x=e.clientX-rect.left;
+      const y=e.clientY-rect.top;
+      if (dragType==='corner' && dragCornerIdx>-1){
+        const u=(x - imgDraw.dx)/imgDraw.dw;
+        const v=(y - imgDraw.dy)/imgDraw.dh;
+        handles[dragCornerIdx].u=Math.max(0,Math.min(1,u));
+        handles[dragCornerIdx].v=Math.max(0,Math.min(1,v));
+      } else if (dragType==='edge' && dragEdgeIdx>-1){
+        const {a,b}=EDGE_MAP[dragEdgeIdx];
+        const ax=imgDraw.dx + handles[a].u*imgDraw.dw;
+        const ay=imgDraw.dy + handles[a].v*imgDraw.dh;
+        const bx=imgDraw.dx + handles[b].u*imgDraw.dw;
+        const by=imgDraw.dy + handles[b].v*imgDraw.dh;
+        const ex=bx-ax, ey=by-ay;
+        const len=Math.hypot(ex,ey)||1;
+        let nx=-ey/len, ny=ex/len;
+        const mx=(ax+bx)/2, my=(ay+by)/2;
+        const dxMove=x-mx, dyMove=y-my;
+        const distAlong = dxMove*nx + dyMove*ny;
+        const shiftX=nx*distAlong, shiftY=ny*distAlong;
+        const du=shiftX/imgDraw.dw, dv=shiftY/imgDraw.dh;
+        function apply(i){
+          handles[i].u = Math.max(0,Math.min(1, handles[i].u + du));
+          handles[i].v = Math.max(0,Math.min(1, handles[i].v + dv));
         }
-      } else if (activePointers.size===2){
-        // Pinch
-        const pts = Array.from(activePointers.values());
-        const dx = pts[0].x - pts[1].x;
-        const dy = pts[0].y - pts[1].y;
-        const dist = Math.hypot(dx,dy);
-        const mid = { x:(pts[0].x+pts[1].x)/2, y:(pts[0].y+pts[1].y)/2 };
-        if (lastDistance){
-          const scaleFactor = dist / lastDistance;
-          const oldZoom = zoom;
-          zoom = Math.max(1, Math.min(4, zoom * scaleFactor));
-          const zRatio = zoom / oldZoom;
-
-          // 以「螢幕中點」為基準調整 pan (保持觀察區域)
-          // 先把這個 mid 轉成 image 相對座標前的 screen point
-          panX = mid.x - (mid.x - panX)*zRatio;
-          panY = mid.y - (mid.y - panY)*zRatio;
-        }
-        lastDistance = dist;
-        lastMid = mid;
-        draw();
+        apply(a); apply(b);
       }
+      positionCornerEls(); updateEdgeHandlePositions(); redraw();
+      e.preventDefault();
     }
     function pointerUp(e){
-      activePointers.delete(e.pointerId);
-      if (activePointers.size<2){
-        lastDistance=null; lastMid=null;
-      }
-      if (activePointers.size===0){
-        draggingHandle=-1;
-      }
+      dragType=null; dragCornerIdx=-1; dragEdgeIdx=-1;
+      window.removeEventListener('pointermove', pointerMove);
+      window.removeEventListener('pointerup', pointerUp);
+      try { wrapper.releasePointerCapture(e.pointerId); } catch(_){}
     }
 
-    function dblClick(e){
-      // 雙擊空白處 -> 重設視圖 + 四角
-      computeBasePlacement();
-      setInitialCorners();
-      draw();
-      statusEl.textContent='(已重設)';
-    }
+    document.getElementById('cropResetBtn').onclick=()=>{
+      setDefaultHandles(); statusEl.textContent='已重設';
+    };
+    document.getElementById('autoDetectBtn').onclick=()=>{ autoDone=false; runAutoDetect(); };
 
-    function keyEsc(e){
-      if (e.key==='Escape'){
-        cleanup();
-        reject('cancel');
-      }
-    }
+    rotateLeftBtn.onclick=()=>{ applyRotation(-90); };
+    rotateRightBtn.onclick=()=>{ applyRotation(90); };
+
+    document.getElementById('cropCancelBtn').onclick=()=>{
+      cleanup(); reject('cancel');
+    };
 
     function cleanup(){
-      modal.classList.remove('active');
-      window.removeEventListener('resize', resizeCanvas);
-      canvas.removeEventListener('pointerdown', pointerDown);
-      canvas.removeEventListener('pointermove', pointerMove);
-      canvas.removeEventListener('pointerup', pointerUp);
-      canvas.removeEventListener('pointercancel', pointerUp);
-      canvas.removeEventListener('dblclick', dblClick);
-      document.removeEventListener('keydown', keyEsc);
-      handlesDom.forEach(h=>h && h.remove());
+      modal.style.display='none';
+      [...cornerEls, ...edgeEls].forEach(el=>{ if (el && el.parentNode) el.parentNode.removeChild(el); });
+      cornerEls=[]; edgeEls=[];
+      wrapper.removeEventListener('pointerdown', pointerDown);
     }
 
-    autoBtn.onclick = ()=>{ autoDetect(); };
-    rotateBtn.onclick = ()=>{ rotate90(); };
-    resetViewBtn.onclick = ()=>{ resetView(); };
-    resetQuadBtn.onclick = ()=>{
-      setInitialCorners();
-      draw();
-      statusEl.textContent='(四角重設)';
+    baseImg.onload=()=>{
+      workingCanvas=document.createElement('canvas');
+      workingCanvas.width=baseImg.naturalWidth;
+      workingCanvas.height=baseImg.naturalHeight;
+      workingCanvas.getContext('2d').drawImage(baseImg,0,0);
+      workingImg.onload=()=>{
+        layoutWorkingImage();
+        ensureCornerEls(); ensureEdgeEls();
+        if (initialQuad){
+          setHandlesByQuad(initialQuad);
+          statusEl.textContent='已載入上次裁切';
+        } else {
+          setDefaultHandles();
+          runAutoDetect();
+        }
+        wrapper.addEventListener('pointerdown', pointerDown, {passive:false});
+        if (typeof initialRotation==='number' && [0,90,180,270].includes(initialRotation) && initialRotation!==0){
+          if (initialQuad) pendingInitialQuad = initialQuad;
+          applyRotation((initialRotation - rotation + 360)%360, true);
+        }
+      };
+      workingImg.src = workingCanvas.toDataURL('image/jpeg',0.92);
     };
-    cancelBtn.onclick = ()=>{ cleanup(); reject('cancel'); };
-    confirmBtn.onclick = ()=>{
-      // 計算輸出尺寸：取對邊較長當寬/高
+    baseImg.onerror=()=>{ modal.style.display='none'; reject('img_load_error'); };
+    baseImg.src = dataUrl;
+
+    document.getElementById('cropConfirmBtn').onclick=()=>{
+      const srcPts = handles.map(h=>({
+        x: Math.round(h.u * workingImg.width),
+        y: Math.round(h.v * workingImg.height)
+      }));
       function dist(a,b){ return Math.hypot(a.x-b.x,a.y-b.y); }
-      const w = Math.min(CONFIG.FULL_MAX_DIM, Math.round(Math.max(dist(corners[0],corners[1]), dist(corners[2],corners[3]))));
-      const h = Math.min(CONFIG.FULL_MAX_DIM, Math.round(Math.max(dist(corners[1],corners[2]), dist(corners[3],corners[0]))));
-      const dstPts = [
-        {x:0,y:0},
-        {x:w-1,y:0},
-        {x:w-1,y:h-1},
-        {x:0,y:h-1}
-      ];
-      const H = computeHomography(corners, dstPts);
-      if (!H){ alert('變形計算失敗，請微調再試'); return; }
-      const warped = warpImage(img,H,w,h);
-      applyEffect(warped, effectSelect.value);
+      const wA=dist(srcPts[2],srcPts[3]), wB=dist(srcPts[1],srcPts[0]);
+      const hA=dist(srcPts[1],srcPts[2]), hB=dist(srcPts[0],srcPts[3]);
+      const dstW=Math.min(Math.round(Math.max(wA,wB)), CONFIG.FULL_MAX_DIM);
+      const dstH=Math.min(Math.round(Math.max(hA,hB)), CONFIG.FULL_MAX_DIM);
+      const dstPts=[{x:0,y:0},{x:dstW-1,y:0},{x:dstW-1,y:dstH-1},{x:0,y:dstH-1}];
+      const H=computeHomography(srcPts,dstPts);
+      if(!H){ alert('計算失敗，請調整後重試'); return; }
+      const srcCanvas=document.createElement('canvas');
+      srcCanvas.width=workingImg.width; srcCanvas.height=workingImg.height;
+      srcCanvas.getContext('2d').drawImage(workingImg,0,0);
+      const warpCanvas=warpImageWithHomography(srcCanvas,H,dstW,dstH);
+      const effect=document.getElementById('effectSelect').value;
+      applyEffect(warpCanvas, effect);
       cleanup();
-      resolve({ croppedCanvas: warped, effect: effectSelect.value, quad: corners, rotation });
+      resolve({ croppedCanvas: warpCanvas, effect, quad: srcPts, rotation });
     };
-
-    // 載入圖片
-    let originalImage = new Image();
-    originalImage.onload = ()=>{
-      img = originalImage;
-      modal.classList.add('active');
-      window.addEventListener('resize', resizeCanvas);
-      resizeCanvas();
-      if (!corners) setInitialCorners();
-      draw();
-      autoDetect();
-    };
-    originalImage.onerror = ()=>{ reject('img_error'); };
-    originalImage.src = dataUrl;
-
-    // 綁事件
-    canvas.addEventListener('pointerdown', pointerDown);
-    canvas.addEventListener('pointermove', pointerMove);
-    canvas.addEventListener('pointerup', pointerUp);
-    canvas.addEventListener('pointercancel', pointerUp);
-    canvas.addEventListener('dblclick', dblClick);
-    document.addEventListener('keydown', keyEsc);
-
-    if (opts.initialEffect) effectSelect.value = opts.initialEffect;
   });
 }
 
-/* ----------------------------------
-   圖片縮圖 / 加入列表
----------------------------------- */
-function createScaledCanvas(img,maxDim){
+/* ========== 縮圖與處理 ========== */
+function createResizedCanvas(img,maxDim){
+  const r=img.width/img.height;
   let w=img.width, h=img.height;
-  const r=w/h;
-  if (w>h){
-    if (w>maxDim){ w=maxDim; h=Math.round(w/r); }
-  } else {
-    if (h>maxDim){ h=maxDim; w=Math.round(h*r); }
-  }
+  if (w>h){ if (w>maxDim){ w=maxDim; h=Math.round(w/r);} }
+  else { if (h>maxDim){ h=maxDim; w=Math.round(h*r);} }
   const c=document.createElement('canvas'); c.width=w; c.height=h;
-  c.getContext('2d').drawImage(img,0,0,w,h);
+  const ctx=c.getContext('2d'); ctx.fillStyle='#fff'; ctx.fillRect(0,0,w,h);
+  ctx.drawImage(img,0,0,img.width,img.height,0,0,w,h);
   return c;
 }
-function processCroppedCanvas(canvas,effect){
-  return new Promise(res=>{
-    const img=new Image();
-    img.onload=()=>{
-      const full = createScaledCanvas(img, CONFIG.FULL_MAX_DIM);
+function processCroppedCanvas(croppedCanvas,effect){
+  return new Promise(resolve=>{
+    const tmp=new Image();
+    tmp.onload=()=>{
+      const full=createResizedCanvas(tmp, CONFIG.FULL_MAX_DIM);
       applyEffect(full,effect);
-      const fullDataUrl = full.toDataURL('image/jpeg', CONFIG.IMAGE_QUALITY);
-      const prev = createScaledCanvas(img, 260);
-      const prevDataUrl = prev.toDataURL('image/jpeg', 0.7);
-      res({ fullDataUrl, previewDataUrl: prevDataUrl, w:full.width, h:full.height });
+      const fullDataUrl=full.toDataURL('image/jpeg',CONFIG.IMAGE_QUALITY);
+      const preview=createResizedCanvas(tmp, CONFIG.PREVIEW_MAX_WIDTH);
+      const previewDataUrl=preview.toDataURL('image/jpeg',0.75);
+      resolve({ fullDataUrl, previewDataUrl, w:full.width, h:full.height });
     };
-    img.src = canvas.toDataURL('image/jpeg',0.95);
+    tmp.src=croppedCanvas.toDataURL('image/jpeg',0.98);
   });
 }
 
+/* ========== 新增：再次裁切功能 editImage(id) ========== */
 async function editImage(id){
   const item = images.find(i=>i.id===id);
   if (!item) return;
   try{
-    const { croppedCanvas,effect,quad,rotation } = await openCropper(item.origDataUrl, {
-      initialEffect:item.effect,
-      initialQuad:item.quad,
-      initialRotation:item.rotation
+    const { croppedCanvas, effect, quad, rotation } = await openCropper(item.origDataUrl, {
+      initialEffect: item.effect,
+      initialQuad: item.quad,
+      initialRotation: item.rotation
     });
-    const processed = await processCroppedCanvas(croppedCanvas,effect);
-    Object.assign(item, processed, { effect, quad, rotation, ts:Date.now() });
+    const processed=await processCroppedCanvas(croppedCanvas, effect);
+    item.fullDataUrl = processed.fullDataUrl;
+    item.previewDataUrl = processed.previewDataUrl;
+    item.w = processed.w;
+    item.h = processed.h;
+    item.effect = effect;
+    item.quad = quad;
+    item.rotation = rotation;
+    item.ts = Date.now();
     updatePreview();
   } catch(e){
     if (e!=='cancel') console.warn(e);
   }
 }
 
-/* ----------------------------------
-   上傳處理
----------------------------------- */
+/* ========== 上傳流程 ========== */
 function handleFiles(fileList){
-  if (!fileList || !fileList.length) return;
-  document.getElementById('loading').style.display='inline';
-  const arr = Array.from(fileList).filter(f=>f.type.startsWith('image/'));
+  if(!fileList || !fileList.length) return;
+  document.getElementById('loading').style.display='';
   let idx=0;
   (function next(){
-    if (idx>=arr.length){
+    if (idx>=fileList.length){
       document.getElementById('loading').style.display='none';
       return;
     }
-    const f=arr[idx++];
+    const f=fileList[idx++];
+    if(!f.type.startsWith('image/')) return next();
     (async ()=>{
-      try {
-        const norm = await loadImageNormalized(f);
-        const {croppedCanvas,effect,quad,rotation} = await openCropper(norm,{});
-        const processed = await processCroppedCanvas(croppedCanvas,effect);
+      try{
+        const normalizedDataUrl = await loadImageNormalized(f);
+        const { croppedCanvas, effect, quad, rotation } = await openCropper(normalizedDataUrl);
+        const processed = await processCroppedCanvas(croppedCanvas, effect);
         images.push({
-          id:Date.now().toString(36)+Math.random().toString(36).slice(2,8),
-          origDataUrl:norm,
-          fullDataUrl:processed.fullDataUrl,
-          previewDataUrl:processed.previewDataUrl,
-          w:processed.w, h:processed.h,
-          effect, quad, rotation, ts:Date.now()
+          id: Date.now().toString(36)+Math.random().toString(36).slice(2,9),
+          origDataUrl: normalizedDataUrl,
+          fullDataUrl: processed.fullDataUrl,
+          previewDataUrl: processed.previewDataUrl,
+          w: processed.w,
+          h: processed.h,
+            effect,
+            quad,
+            rotation,
+          ts: Date.now()
         });
-        updatePreview();
-      } catch(e){
-        if (e!=='cancel') console.warn(e);
+        updatePreview(); updateStorageInfoEstimate();
+      } catch(err){
+        if (err!=='cancel') console.warn(err);
       } finally {
         next();
       }
     })();
   })();
 }
+document.getElementById('cameraInput').addEventListener('change', e=>{ handleFiles(e.target.files); e.target.value=''; });
+document.getElementById('fileInput').addEventListener('change', e=>{ handleFiles(e.target.files); e.target.value=''; });
 
-document.getElementById('cameraInput').addEventListener('change', e=>{
-  handleFiles(e.target.files); e.target.value='';
-});
-document.getElementById('fileInput').addEventListener('change', e=>{
-  handleFiles(e.target.files); e.target.value='';
-});
-
-/* ----------------------------------
-   UI 更新
----------------------------------- */
 function updatePreview(){
-  const wrap=document.getElementById('preview');
-  wrap.innerHTML='';
-  images.forEach((imgObj,idx)=>{
-    const div=document.createElement('div');
-    div.className='thumb';
-    div.innerHTML=`
-      <div class="order-label">${idx+1}</div>
-      <img src="${imgObj.previewDataUrl}" alt="p${idx+1}">
-      <button class="remove-btn" title="刪除">×</button>
-    `;
-    div.querySelector('.remove-btn').onclick=(ev)=>{
-      ev.stopPropagation();
-      images = images.filter(x=>x.id!==imgObj.id);
-      updatePreview();
+  const container=document.getElementById('preview');
+  container.innerHTML='';
+  images.forEach((o,idx)=>{
+    const div=document.createElement('div'); div.className='thumb'; div.dataset.id=o.id;
+    const order=document.createElement('div'); order.className='order-label'; order.textContent=idx+1; div.appendChild(order);
+    const im=document.createElement('img'); im.src=o.previewDataUrl; im.alt='第 '+(idx+1)+' 張'; div.appendChild(im);
+    const del=document.createElement('button'); del.className='remove-btn'; del.textContent='X';
+    del.onclick=e=>{
+      e.stopPropagation();
+      images=images.filter(x=>x.id!==o.id);
+      updatePreview(); updateStorageInfoEstimate();
     };
-    div.onclick=()=>editImage(imgObj.id);
-    wrap.appendChild(div);
+    div.appendChild(del);
+    const bar=document.createElement('div'); bar.className='move-bar';
+    const up=document.createElement('button'); up.className='move-btn'; up.textContent='↑';
+    up.onclick=e=>{
+      e.stopPropagation();
+      const i=images.findIndex(x=>x.id===o.id);
+      if (i>0){ [images[i-1],images[i]]=[images[i],images[i-1]]; updatePreview(); }
+    };
+    const down=document.createElement('button'); down.className='move-btn'; down.textContent='↓';
+    down.onclick=e=>{
+      e.stopPropagation();
+      const i=images.findIndex(x=>x.id===o.id);
+      if (i>=0 && i<images.length-1){ [images[i+1],images[i]]=[images[i],images[i+1]]; updatePreview(); }
+    };
+    bar.appendChild(up); bar.appendChild(down); div.appendChild(bar);
+
+    div.addEventListener('click', (e)=>{
+      if (e.target.closest('.remove-btn') || e.target.closest('.move-btn')) return;
+      editImage(o.id);
+    });
+
+    container.appendChild(div);
   });
-  document.getElementById('storageInfo').textContent = `目前圖片數量：${images.length}`;
+}
+function updateStorageInfoEstimate(){
+  const el=document.getElementById('storageInfo');
+  if (!el) return;
+  el.textContent=`目前圖片數量：${images.length}`;
 }
 
-function clearAllImages(){
-  if (confirm('確定刪除全部圖片？')){
-    images=[];
-    updatePreview();
-  }
-}
+function clearAllImages(){ if (confirm('確定刪除全部圖片？')){ images=[]; updatePreview(); updateStorageInfoEstimate(); } }
 function triggerCamera(){ document.getElementById('cameraInput').click(); }
 function triggerFile(){ document.getElementById('fileInput').click(); }
 
-/* ----------------------------------
-   PDF 產生
----------------------------------- */
 function getPdfFilename(){
-  const d=new Date(), pad=n=>String(n).padStart(2,'0');
-  return `${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}_scan.pdf`;
+  const d=new Date(), p=n=>String(n).padStart(2,'0');
+  return d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+'_'+p(d.getHours())+p(d.getMinutes())+p(d.getSeconds())+'_轉檔.pdf';
 }
+
+// *** MODIFIED FUNCTION ***
 function generatePDF(){
   if (!images.length){ alert('請先加入圖片'); return; }
-  document.getElementById('loading').style.display='inline';
-  try{
-    const firstLandscape = images[0].w > images[0].h;
-    const pdf = new jsPDF({
-      unit:'pt', format:'a4', orientation:firstLandscape?'landscape':'portrait'
-    });
-    const A4W=595.28, A4H=841.89;
-    images.forEach((im,idx)=>{
-      if (idx>0){
-        const isL = im.w>im.h;
-        pdf.addPage('a4', isL?'landscape':'portrait');
-      }
-      const pageW = im.w>im.h ? A4H : A4W;
-      const pageH = im.w>im.h ? A4W : A4H;
-      const ratio = Math.min(pageW/im.w, pageH/im.h);
-      const w=im.w*ratio, h=im.h*ratio;
-      pdf.addImage(im.fullDataUrl, 'JPEG', (pageW-w)/2, (pageH-h)/2, w, h);
-    });
-    pdf.save(getPdfFilename());
-  } catch(e){
-    console.error(e);
-    alert('產生 PDF 發生錯誤');
-  } finally {
-    document.getElementById('loading').style.display='none';
-  }
+  const firstLandscape = images[0].w > images[0].h;
+  const pdf = new jsPDF({unit:'pt', format:'a4', orientation:firstLandscape?'landscape':'portrait'});
+  
+  // 定義 A4 紙張的標準尺寸 (pt, 點)，用於精確計算
+  const A4_WIDTH_PT = 595.28;
+  const A4_HEIGHT_PT = 841.89;
+
+  images.forEach((o, idx)=>{
+    const isL = o.w > o.h;
+    if (idx > 0){
+      pdf.addPage('a4', isL ? 'landscape':'portrait');
+    }
+    
+    // 不再動態獲取頁面尺寸，而是根據方向直接指定，以修正 iPhone 上的比例問題
+    let pw, ph;
+    if (isL) { // 如果圖片是橫向
+      pw = A4_HEIGHT_PT; // 頁面寬度是 A4 的長邊
+      ph = A4_WIDTH_PT;  // 頁面高度是 A4 的短邊
+    } else { // 如果圖片是直向
+      pw = A4_WIDTH_PT;   // 頁面寬度是 A4 的短邊
+      ph = A4_HEIGHT_PT;  // 頁面高度是 A4 的長邊
+    }
+
+    const ratio = Math.min(pw / o.w, ph / o.h);
+    const w = o.w * ratio;
+    const h = o.h * ratio;
+    
+    pdf.addImage(o.fullDataUrl, 'JPEG', (pw - w) / 2, (ph - h) / 2, w, h);
+  });
+  
+  pdf.save(getPdfFilename());
 }
+
+
+window.addEventListener('DOMContentLoaded', ()=>{
+  detectLineInApp();
+  updatePreview(); updateStorageInfoEstimate();
+});
 </script>
 </body>
 </html>
