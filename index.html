@@ -970,45 +970,64 @@ function getPdfFilename(){
 }
 
 // *** MODIFIED FUNCTION ***
-function generatePDF(){
-  if (!images.length){ alert('請先加入圖片'); return; }
-  const firstLandscape = images[0].w > images[0].h;
-  const pdf = new jsPDF({unit:'pt', format:'a4', orientation:firstLandscape?'landscape':'portrait'});
-  
-  // 定義 A4 紙張的標準尺寸 (pt, 點)，用於精確計算
-  const A4_WIDTH_PT = 595.28;
-  const A4_HEIGHT_PT = 841.89;
+function generatePDF() {
+  if (!images.length) {
+    alert('請先加入圖片');
+    return;
+  }
+  document.getElementById('loading').style.display = '';
 
-  images.forEach((o, idx)=>{
-    const isL = o.w > o.h;
-    if (idx > 0){
-      pdf.addPage('a4', isL ? 'landscape':'portrait');
-    }
-    
-    // 不再動態獲取頁面尺寸，而是根據方向直接指定，以修正 iPhone 上的比例問題
-    let pw, ph;
-    if (isL) { // 如果圖片是橫向
-      pw = A4_HEIGHT_PT; // 頁面寬度是 A4 的長邊
-      ph = A4_WIDTH_PT;  // 頁面高度是 A4 的短邊
-    } else { // 如果圖片是直向
-      pw = A4_WIDTH_PT;   // 頁面寬度是 A4 的短邊
-      ph = A4_HEIGHT_PT;  // 頁面高度是 A4 的長邊
-    }
+  try {
+    const firstImage = images[0];
+    const firstOrientation = firstImage.w > firstImage.h ? 'landscape' : 'portrait';
+    const pdf = new jsPDF({
+      orientation: firstOrientation,
+      unit: 'pt',
+      format: 'a4'
+    });
 
-    const ratio = Math.min(pw / o.w, ph / o.h);
-    const w = o.w * ratio;
-    const h = o.h * ratio;
-    
-    pdf.addImage(o.fullDataUrl, 'JPEG', (pw - w) / 2, (ph - h) / 2, w, h);
-  });
-  
-  pdf.save(getPdfFilename());
+    const A4_WIDTH_PT = 595.28;
+    const A4_HEIGHT_PT = 841.89;
+
+    images.forEach((img, index) => {
+      const isLandscape = img.w > img.h;
+      const orientation = isLandscape ? 'landscape' : 'portrait';
+
+      if (index > 0) {
+        pdf.addPage('a4', orientation);
+      }
+      
+      let pageW, pageH;
+      if (orientation === 'landscape') {
+        pageW = A4_HEIGHT_PT;
+        pageH = A4_WIDTH_PT;
+      } else {
+        pageW = A4_WIDTH_PT;
+        pageH = A4_HEIGHT_PT;
+      }
+
+      const ratio = Math.min(pageW / img.w, pageH / img.h);
+      const scaledW = img.w * ratio;
+      const scaledH = img.h * ratio;
+
+      // 計算置中的 X, Y 座標
+      const x = (pageW - scaledW) / 2;
+      const y = (pageH - scaledH) / 2;
+
+      pdf.addImage(img.fullDataUrl, 'JPEG', x, y, scaledW, scaledH);
+    });
+
+    pdf.save(getPdfFilename());
+  } catch (e) {
+    console.error("PDF generation failed:", e);
+    alert('產生 PDF 時發生錯誤，請稍後再試。');
+  } finally {
+    document.getElementById('loading').style.display = 'none';
+  }
 }
 
-
-window.addEventListener('DOMContentLoaded', ()=>{
+document.addEventListener('DOMContentLoaded', ()=>{
   detectLineInApp();
-  updatePreview(); updateStorageInfoEstimate();
 });
 </script>
 </body>
