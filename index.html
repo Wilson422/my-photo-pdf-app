@@ -987,7 +987,7 @@ function generatePDF(){
   const A4_WIDTH_PT = 595.28;
   const A4_HEIGHT_PT = 841.89;
   const fillA4 = document.getElementById('stretchA4Checkbox').checked;
-  const MARGIN = 10; // 10pt 邊距
+  const MARGIN = 0; // 0pt 邊距
 
   images.forEach((o, idx)=>{
     const isL = o.w > o.h;
